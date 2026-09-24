@@ -430,6 +430,7 @@ func main() {
 
 	// 注册 WebSocket 执行函数（避免 proxy ↔ wsrelay 循环依赖）
 	proxy.WebsocketExecuteFunc = wsrelay.ExecuteRequestWebsocket
+	proxy.ResetCodexWebsocketConnectionsForAccount = wsrelay.GetManager().CloseAccountConnections
 
 	// 注册 Agent Identity task 确保函数（proxy 无 Store 引用，启动时注入）
 	proxy.EnsureCodexAgentIdentityTaskFunc = store.EnsureCodexAgentIdentityTask

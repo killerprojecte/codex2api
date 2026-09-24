@@ -9,6 +9,7 @@ import (
 	"github.com/codex2api/auth"
 	"github.com/codex2api/database"
 	"github.com/codex2api/internal/openaiidentity"
+	"github.com/codex2api/proxy"
 )
 
 func antigravityPersistedStatus(row *database.AccountRow) (string, string) {
@@ -298,6 +299,11 @@ func (h *Handler) buildAccountResponse(
 	}
 	// 凭据里只要存在 usage 窗口键(哪怕是空数组)就代表 OAuth usage 采样跑过。
 	resp.ClaudeUsageWindowsProbed = strings.TrimSpace(row.GetCredential(auth.ClaudeUsageWindowsCredentialKey)) != ""
+	if session, ok := proxy.GetCodexAccountWebsocketSession(row.ID); ok {
+		resp.CodexPreviousID = session.PreviousResponseID
+		resp.CodexWebsocketSessionID = session.SessionID
+		resp.CodexWebsocketSessionExpiresAt = session.ExpiresAt.Format(time.RFC3339)
+	}
 	if isAntigravityAccount {
 		resp.Models = antigravityPublishedModelsOrDefault(row.GetCredentialStringSlice("models"))
 	}

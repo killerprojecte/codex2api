@@ -590,6 +590,12 @@ func ExecuteRequest(ctx context.Context, account *auth.Account, requestBody []by
 	if account.IsCodexAgentIdentity() {
 		wantWebsocket = false
 	}
+	// A manually pre-warmed account session is reused only by requests that are
+	// already taking the native Codex WebSocket path. HTTP/image/fallback paths
+	// keep their existing per-request session behavior.
+	if wantWebsocket && strings.TrimSpace(sessionID) == "" {
+		sessionID = accountWebsocketSessionID(account)
+	}
 	var telemetryAttempt *codexTelemetryAttempt
 	if !detectorProbe {
 		telemetryAttempt = beginCodexTelemetry(codexTelemetryRequest{

@@ -1209,6 +1209,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api.GET("/accounts/invite/plan", h.GetInviteGuidePlan)
 	api.POST("/accounts/invite/plan/probe", h.ProbeInviteGuidePlan)
 	api.GET("/accounts/:id/test", h.TestConnection)
+	api.POST("/accounts/:id/codex-websocket-session/refresh", h.RefreshCodexWebsocketSession)
 	api.GET("/accounts/:id/model-detector", h.DetectCodexModel)
 	api.GET("/accounts/:id/quality-test/options", h.QualityTestOptions)
 	api.POST("/accounts/:id/quality-test", h.CreateQualityTestJob)
@@ -1646,20 +1647,23 @@ func isDashboardRateLimitedAccount(status string, cooldownReason string) bool {
 // ==================== Accounts ====================
 
 type accountResponse struct {
-	CodexLastRefreshAt      string `json:"codex_last_refresh_at,omitempty"`
-	CodexRefreshError       string `json:"codex_refresh_error,omitempty"`
-	UpstreamRequestIDHeader string `json:"upstream_request_id_header"`
-	DetailLoaded            bool   `json:"detail_loaded,omitempty"`
-	ID                      int64  `json:"id"`
-	Name                    string `json:"name"`
-	Email                   string `json:"email"`
-	EmailDomain             string `json:"email_domain,omitempty"`
-	ChatGPTAccountID        string `json:"chatgpt_account_id,omitempty"`
-	TokenWorkspaceID        string `json:"token_workspace_id,omitempty"`
-	WorkspaceIDOverride     string `json:"workspace_id_override,omitempty"`
-	EffectiveWorkspaceID    string `json:"effective_workspace_id,omitempty"`
-	PlanType                string `json:"plan_type"`
-	SubscriptionExpiresAt   string `json:"subscription_expires_at,omitempty"`
+	CodexLastRefreshAt             string `json:"codex_last_refresh_at,omitempty"`
+	CodexRefreshError              string `json:"codex_refresh_error,omitempty"`
+	CodexPreviousID                string `json:"codex_previous_id,omitempty"`
+	CodexWebsocketSessionID        string `json:"codex_websocket_session_id,omitempty"`
+	CodexWebsocketSessionExpiresAt string `json:"codex_websocket_session_expires_at,omitempty"`
+	UpstreamRequestIDHeader        string `json:"upstream_request_id_header"`
+	DetailLoaded                   bool   `json:"detail_loaded,omitempty"`
+	ID                             int64  `json:"id"`
+	Name                           string `json:"name"`
+	Email                          string `json:"email"`
+	EmailDomain                    string `json:"email_domain,omitempty"`
+	ChatGPTAccountID               string `json:"chatgpt_account_id,omitempty"`
+	TokenWorkspaceID               string `json:"token_workspace_id,omitempty"`
+	WorkspaceIDOverride            string `json:"workspace_id_override,omitempty"`
+	EffectiveWorkspaceID           string `json:"effective_workspace_id,omitempty"`
+	PlanType                       string `json:"plan_type"`
+	SubscriptionExpiresAt          string `json:"subscription_expires_at,omitempty"`
 	// Subscription 服务端计算的订阅状态对象（业务状态 + 同步状态）；不跟踪订阅的
 	// 套餐（api/无到期时间的 free）为空。
 	Subscription          *auth.SubscriptionStatusView `json:"subscription,omitempty"`

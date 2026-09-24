@@ -164,6 +164,9 @@ func noteUpstreamTurnState(ctx context.Context, state string) {
 func doTracedUpstreamRequest(client *http.Client, req *http.Request, account *auth.Account, proxyURL string) (*http.Response, error) {
 	record := beginUpstreamTrace(req.Context(), account, proxyURL, false)
 	resp, err := client.Do(req)
+	if account != nil && !account.IsRelayStyle() {
+		LogCodexResponseCookies(account.ID(), resp)
+	}
 	record(resp)
 	return resp, err
 }

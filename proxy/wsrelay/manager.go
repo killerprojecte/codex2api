@@ -1252,6 +1252,7 @@ func (m *Manager) createConnection(
 
 	// 拨号连接
 	conn, resp, err := dialer.DialContext(ctx, wsURL, headers)
+	proxy.LogCodexResponseCookies(account.ID(), resp)
 	if err != nil {
 		m.sessions.Delete(poolKey)
 		session.Close()
@@ -1324,6 +1325,26 @@ func (m *Manager) DiscardConnection(wc *WsConnection) {
 	_ = wc.Close()
 	if wc.session != nil {
 		m.notifyAccountWaiters(wc.session.AccountID)
+	}
+}
+
+// CloseAccountConnections closes every pooled WebSocket belonging to one
+// account. It is used when an administrator explicitly rotates the account's
+// previous_response_id/session pair.
+func (m *Manager) CloseAccountConnections(accountID int64) {
+	if m == nil || accountID <= 0 {
+		return
+	}
+	var connections []*WsConnection
+	m.connections.Range(func(_, value any) bool {
+		wc, ok := value.(*WsConnection)
+		if ok && wc != nil && wc.session != nil && wc.session.AccountID == accountID {
+			connections = append(connections, wc)
+		}
+		return true
+	})
+	for _, wc := range connections {
+		m.DiscardConnection(wc)
 	}
 }
 

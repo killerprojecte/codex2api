@@ -878,6 +878,11 @@ export const api = {
     }),
   refreshAccount: (id: number) =>
     request<MessageResponse>(`/accounts/${id}/refresh`, { method: 'POST' }),
+  refreshCodexWebsocketSession: (id: number, model?: string) =>
+    request<{ previous_id: string; session_id: string; expires_at: string; model: string }>(
+      `/accounts/${id}/codex-websocket-session/refresh${model ? `?model=${encodeURIComponent(model)}` : ''}`,
+      { method: 'POST', timeoutMs: 130_000 },
+    ),
   getAccount: (id: number, signal?: AbortSignal) =>
     request<AccountRow>(`/accounts/${id}`, { signal }),
   forceUsageProbe: () =>

@@ -194,6 +194,7 @@ export interface AccountDetailSheetProps {
   canGoNext?: boolean;
   refreshing?: boolean;
   authJsonExporting?: boolean;
+  codexSessionRefreshing?: boolean;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -203,6 +204,7 @@ export interface AccountDetailSheetProps {
   onUsage: () => void;
   onTest: () => void;
   onRefresh: () => void;
+  onRefreshCodexSession?: () => void;
   onGenerateAuthJson: () => void;
   onToggleEnabled: () => void;
   onToggleLock: () => void;
@@ -230,6 +232,7 @@ export default function AccountDetailSheet({
   canGoNext = false,
   refreshing = false,
   authJsonExporting = false,
+  codexSessionRefreshing = false,
   onClose,
   onPrev,
   onNext,
@@ -239,6 +242,7 @@ export default function AccountDetailSheet({
   onUsage,
   onTest,
   onRefresh,
+  onRefreshCodexSession,
   onGenerateAuthJson,
   onToggleEnabled,
   onToggleLock,
@@ -798,6 +802,7 @@ export default function AccountDetailSheet({
               account.grok_api ||
               account.claude_api ||
               account.base_url ||
+              account.codex_previous_id ||
               (!account.openai_responses_api &&
                 (account.models?.length ?? 0) > 0)) && (
               <Section title={t("accounts.detailTechnical")}>
@@ -859,6 +864,26 @@ export default function AccountDetailSheet({
                       </span>
                       <span className="min-w-0 break-all text-right font-mono text-[11px] text-foreground">
                         {account.proxy_url}
+                      </span>
+                    </div>
+                  )}
+                  {account.codex_previous_id && (
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="shrink-0 text-muted-foreground">
+                        {t("accounts.codexPreviousId")}
+                      </span>
+                      <span className="min-w-0 break-all text-right font-mono text-[11px] text-foreground">
+                        {account.codex_previous_id}
+                      </span>
+                    </div>
+                  )}
+                  {account.codex_websocket_session_expires_at && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">
+                        {t("accounts.codexSessionExpiresAt")}
+                      </span>
+                      <span className="text-right text-foreground">
+                        {formatBeijingTime(account.codex_websocket_session_expires_at)}
                       </span>
                     </div>
                   )}
@@ -942,6 +967,20 @@ export default function AccountDetailSheet({
                   ? t("grok.actionRefresh")
                   : t("accounts.actionRefreshAT")}
               </Button>
+              {onRefreshCodexSession ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={codexSessionRefreshing}
+                  onClick={onRefreshCodexSession}
+                >
+                  <RefreshCw className={`size-3.5 ${codexSessionRefreshing ? "animate-spin" : ""}`} />
+                  {codexSessionRefreshing
+                    ? t("accounts.codexSessionRefreshing")
+                    : t("accounts.codexSessionRefresh")}
+                </Button>
+              ) : null}
               {showAuthJson && (
                 <Button
                   type="button"

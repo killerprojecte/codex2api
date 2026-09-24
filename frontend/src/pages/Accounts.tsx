@@ -619,6 +619,15 @@ function isCodexOfficialAccount(account: AccountRow): boolean {
   return !account.openai_responses_api && !account.grok_api;
 }
 
+function supportsCodexWebsocketSession(account: AccountRow): boolean {
+  return (
+    isCodexOfficialAccount(account) &&
+    !account.antigravity_api &&
+    !account.claude_api &&
+    !account.agent_identity
+  );
+}
+
 interface TimezoneSelectProps {
   value: string;
   custom: boolean;
@@ -1849,6 +1858,7 @@ export default function Accounts() {
   const [submitting, setSubmitting] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [refreshingIds, setRefreshingIds] = useState<Set<number>>(new Set());
+  const [codexSessionRefreshingIds, setCodexSessionRefreshingIds] = useState<Set<number>>(new Set());
   const [authJsonExportingIds, setAuthJsonExportingIds] = useState<Set<number>>(
     new Set(),
   );
@@ -4727,6 +4737,26 @@ export default function Accounts() {
       );
     } finally {
       setRefreshingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(account.id);
+        return next;
+      });
+    }
+  };
+
+  const handleRefreshCodexSession = async (account: AccountRow) => {
+    setCodexSessionRefreshingIds((prev) => new Set(prev).add(account.id));
+    try {
+      await api.refreshCodexWebsocketSession(account.id);
+      await refreshAccountRow(account.id);
+      showToast(t("accounts.codexSessionRefreshDone"));
+    } catch (error) {
+      showToast(
+        t("accounts.codexSessionRefreshFailed", { error: getErrorMessage(error) }),
+        "error",
+      );
+    } finally {
+      setCodexSessionRefreshingIds((prev) => {
         const next = new Set(prev);
         next.delete(account.id);
         return next;
@@ -9043,6 +9073,9 @@ export default function Accounts() {
                 ? authJsonExportingIds.has(detailAccount.id)
                 : false
             }
+            codexSessionRefreshing={
+              detailAccount ? codexSessionRefreshingIds.has(detailAccount.id) : false
+            }
             onClose={closeAccountDetail}
             onPrev={goDetailPrev}
             onNext={goDetailNext}
@@ -9071,6 +9104,11 @@ export default function Accounts() {
               if (!detailAccount) return;
               void handleRefresh(detailAccount);
             }}
+            onRefreshCodexSession={
+              detailAccount && supportsCodexWebsocketSession(detailAccount)
+                ? () => void handleRefreshCodexSession(detailAccount)
+                : undefined
+            }
             onGenerateAuthJson={() => {
               if (!detailAccount) return;
               void handleGenerateAuthJSON(detailAccount);

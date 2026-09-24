@@ -368,6 +368,9 @@ export interface SubscriptionRefreshResponse {
 export interface AccountRow {
   codex_last_refresh_at?: string
   codex_refresh_error?: string
+  codex_previous_id?: string
+  codex_websocket_session_id?: string
+  codex_websocket_session_expires_at?: ISODateString
   upstream_request_id_header?: string | null
   detail_loaded?: boolean
   id: number
