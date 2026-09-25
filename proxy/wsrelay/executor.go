@@ -136,11 +136,6 @@ func (e *Executor) ExecuteRequestViaWebsocket(
 	if err != nil {
 		return nil, fmt.Errorf("构建 WebSocket URL 失败: %w", err)
 	}
-	// Cookie Jar and __oailb edge routing are scoped to the public Codex URL.
-	// Keep this URL before an optional Resin/internal egress rewrite so the
-	// handshake still carries cookies for chatgpt.com rather than the dial
-	// target's host.
-	cookieWSURL := wsURL
 
 	// 出口链路统一由 ResolveCodexWebsocketEgress 决定(Resin > 代理 > 直连):
 	// Resin 模式下 WS 地址改写为反代路径,拨号侧(createConnection)同样按它跳过代理。
@@ -161,7 +156,6 @@ func (e *Executor) ExecuteRequestViaWebsocket(
 	// still auditable. A reused connection replaces this below with the UA that
 	// was actually sent when that connection was established.
 	proxy.RecordUpstreamUserAgent(ctx, headers.Get("User-Agent"))
-	proxy.ApplyCodexCookieJarToHeaders(account, cookieWSURL, headers)
 
 	egress.ApplyHeaders(headers)
 

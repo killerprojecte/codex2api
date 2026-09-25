@@ -1224,8 +1224,18 @@ func (m *Manager) createConnection(
 		// Gorilla's jar lookup uses the wss URL directly, which does not make
 		// net/http/cookiejar consider Secure cookies eligible. Apply from the
 		// equivalent https URL and store the handshake response explicitly below.
+		// This is deliberately done only while creating a new connection: a
+		// reused WebSocket cannot resend its handshake Cookie, so advancing the
+		// edge timer in the executor would report a switch that the live socket
+		// never actually used.
 		handshakeHeaders = headers.Clone()
-		proxy.ApplyCodexCookieJarToHeaders(account, wsURL, handshakeHeaders)
+		cookieURL := wsURL
+		if proxy.IsResinEnabled() {
+			if parsedURL, err := url.Parse(wsURL); err == nil && !strings.EqualFold(parsedURL.Hostname(), "chatgpt.com") {
+				cookieURL = proxy.CodexBaseURL + "/responses"
+			}
+		}
+		proxy.ApplyCodexCookieJarToHeaders(account, cookieURL, handshakeHeaders)
 		dialer.Jar = nil
 	}
 
