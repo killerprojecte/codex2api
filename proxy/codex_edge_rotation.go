@@ -157,6 +157,10 @@ func CodexEdgeStateForAccount(account *auth.Account) (string, time.Time, int) {
 	if state == nil {
 		return "", time.Time{}, 0
 	}
+	// Detail pages can be opened before the first request after startup. Seed
+	// the visible state from the persisted __oailb cookie so they show the
+	// current node rather than the chatgpt.com placeholder.
+	_ = codexCurrentEdgeDomain(account)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.domain == "" {
@@ -164,6 +168,37 @@ func CodexEdgeStateForAccount(account *auth.Account) (string, time.Time, int) {
 		return "chatgpt.com", state.nextSwitchAt, 0
 	}
 	return state.domain, state.nextSwitchAt, state.index
+}
+
+// RotateCodexEdgeForAccount advances one account immediately. The next
+// request keeps the public chatgpt.com URL and carries the new host inside
+// __oailb.
+func RotateCodexEdgeForAccount(account *auth.Account) (string, time.Time, int, error) {
+	cfg := CurrentRuntimeSettings()
+	if account == nil {
+		return "", time.Time{}, 0, fmt.Errorf("account is nil")
+	}
+	if !cfg.CodexCookieJarEnabled || !cfg.CodexEdgeRotationEnabled {
+		return "", time.Time{}, 0, fmt.Errorf("Codex Cookie Jar 与边缘节点轮询未开启")
+	}
+	// Seed from the current __oailb cookie when the process has no state yet.
+	_ = codexCurrentEdgeDomain(account)
+	state := codexEdgeStateForAccount(account)
+	if state == nil {
+		return "", time.Time{}, 0, fmt.Errorf("edge state unavailable")
+	}
+	now := time.Now()
+	state.mu.Lock()
+	next := state.index + 1
+	if next < 1 || next > cfg.CodexEdgeRotationMax {
+		next = 1
+	}
+	state.index = next
+	state.domain = codexEdgeDomain(next)
+	state.nextSwitchAt = now.Add(time.Duration(cfg.CodexEdgeRotationIntervalSec) * time.Second)
+	domain, deadline, index := state.domain, state.nextSwitchAt, state.index
+	state.mu.Unlock()
+	return domain, deadline, index, nil
 }
 
 func codexCurrentEdgeDomain(account *auth.Account) string {
@@ -210,28 +245,38 @@ func codexCurrentEdgeDomain(account *auth.Account) string {
 	return state.domain
 }
 
-// CodexURLForAccount rewrites official Codex URLs to the selected edge while
-// leaving test servers, relay URLs, and unrelated OpenAI hosts untouched.
+// CodexURLForAccount deliberately keeps the public API URL unchanged. The
+// unified edge is selected by rewriting the __oailb cookie payload, not by
+// putting the internal unified host into the request URL.
 func CodexURLForAccount(account *auth.Account, raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return raw
-	}
-	domain := codexCurrentEdgeDomain(account)
-	if domain == "" {
-		return raw
-	}
-	host := strings.ToLower(u.Hostname())
-	if host != "chatgpt.com" && codexEdgeDomainIndex(host, CurrentRuntimeSettings().CodexEdgeRotationMax) == 0 {
-		return raw
-	}
-	u.Host = domain
-	if port := u.Port(); port != "" {
-		u.Host = domain + ":" + port
-	}
-	return u.String()
+	return raw
 }
 
 func CodexBaseURLForAccount(account *auth.Account) string {
 	return CodexURLForAccount(account, CodexBaseURL)
+}
+
+func rewriteCodexEdgeCookieValue(raw, host string) string {
+	parts := strings.Split(raw, ".")
+	if len(parts) < 3 || strings.TrimSpace(host) == "" {
+		return raw
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		payload, err = base64.URLEncoding.DecodeString(parts[1])
+	}
+	if err != nil {
+		return raw
+	}
+	var data map[string]any
+	if json.Unmarshal(payload, &data) != nil {
+		return raw
+	}
+	data["host"] = host
+	payload, err = json.Marshal(data)
+	if err != nil {
+		return raw
+	}
+	parts[1] = base64.RawURLEncoding.EncodeToString(payload)
+	return strings.Join(parts, ".")
 }

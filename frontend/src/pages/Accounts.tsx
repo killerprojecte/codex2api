@@ -1859,6 +1859,7 @@ export default function Accounts() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [refreshingIds, setRefreshingIds] = useState<Set<number>>(new Set());
   const [codexSessionRefreshingIds, setCodexSessionRefreshingIds] = useState<Set<number>>(new Set());
+  const [codexEdgeRotatingIds, setCodexEdgeRotatingIds] = useState<Set<number>>(new Set());
   const [authJsonExportingIds, setAuthJsonExportingIds] = useState<Set<number>>(
     new Set(),
   );
@@ -4772,6 +4773,23 @@ export default function Accounts() {
       showToast(enabled ? t("accounts.codexSessionModeEnabledToast") : t("accounts.codexSessionModeDisabledToast"));
     } catch (error) {
       showToast(t("accounts.codexSessionModeFailed", { error: getErrorMessage(error) }), "error");
+    }
+  };
+
+  const handleRotateCodexEdge = async (account: AccountRow) => {
+    setCodexEdgeRotatingIds((prev) => new Set(prev).add(account.id));
+    try {
+      await api.rotateCodexEdge(account.id);
+      await refreshAccountRow(account.id);
+      showToast(t("accounts.codexEdgeRotateDone"));
+    } catch (error) {
+      showToast(t("accounts.codexEdgeRotateFailed", { error: getErrorMessage(error) }), "error");
+    } finally {
+      setCodexEdgeRotatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(account.id);
+        return next;
+      });
     }
   };
 
@@ -9087,6 +9105,9 @@ export default function Accounts() {
             codexSessionRefreshing={
               detailAccount ? codexSessionRefreshingIds.has(detailAccount.id) : false
             }
+            codexEdgeRotating={
+              detailAccount ? codexEdgeRotatingIds.has(detailAccount.id) : false
+            }
             onClose={closeAccountDetail}
             onPrev={goDetailPrev}
             onNext={goDetailNext}
@@ -9123,6 +9144,11 @@ export default function Accounts() {
             onToggleCodexSession={
               detailAccount && supportsCodexWebsocketSession(detailAccount)
                 ? () => void handleToggleCodexSession(detailAccount)
+                : undefined
+            }
+            onRotateCodexEdge={
+              detailAccount?.codex_edge_domain
+                ? () => void handleRotateCodexEdge(detailAccount)
                 : undefined
             }
             onGenerateAuthJson={() => {

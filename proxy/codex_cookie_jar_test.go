@@ -155,13 +155,53 @@ func TestCodexEdgeRotationStartsFromCookieAndAdvances(t *testing.T) {
 	value := "e30." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 	u := mustURL(t, "https://chatgpt.com/backend-api/codex/responses")
 	UpdateCodexCookieJarFromResponse(account, u, &http.Response{Header: http.Header{"Set-Cookie": []string{"__oailb=" + value + "; Path=/; Max-Age=3600"}}})
-	if got := CodexBaseURLForAccount(account); !strings.Contains(got, "unified-2") {
-		t.Fatalf("starting edge = %q", got)
+	if got := CodexBaseURLForAccount(account); got != CodexBaseURL {
+		t.Fatalf("edge routing must keep public API URL, got %q", got)
+	}
+	headers := http.Header{}
+	ApplyCodexCookieJarToHeaders(account, "https://chatgpt.com/backend-api/codex/responses", headers)
+	if !strings.Contains(decodeOailbPayloadForTest(headers.Get("Cookie")), "unified-2") {
+		t.Fatalf("starting edge was not wrapped in __oailb: %q", headers.Get("Cookie"))
 	}
 	time.Sleep(1100 * time.Millisecond)
-	if got := CodexBaseURLForAccount(account); !strings.Contains(got, "unified-3") {
-		t.Fatalf("rotated edge = %q", got)
+	headers = http.Header{}
+	ApplyCodexCookieJarToHeaders(account, "https://chatgpt.com/backend-api/codex/responses", headers)
+	if !strings.Contains(decodeOailbPayloadForTest(headers.Get("Cookie")), "unified-3") {
+		t.Fatalf("rotated edge was not wrapped in __oailb: %q", headers.Get("Cookie"))
 	}
+}
+
+func TestCodexCookieJarMapsResinResponseToPublicURL(t *testing.T) {
+	ResetAllCodexCookieJars()
+	t.Cleanup(ResetAllCodexCookieJars)
+	setCookieJarTestSetting(true)
+	account := &auth.Account{DBID: 107, AccountID: "workspace"}
+	SetResinConfig(&ResinConfig{BaseURL: "http://127.0.0.1:2260/test-token", PlatformName: "codex2api"})
+	t.Cleanup(func() { SetResinConfig(nil) })
+
+	publicURL := mustURL(t, CodexBaseURL+"/responses")
+	resinURL, err := url.Parse(BuildReverseProxyURL(publicURL.String()))
+	if err != nil {
+		t.Fatalf("parse Resin URL: %v", err)
+	}
+	UpdateCodexCookieJarFromResponse(account, resinURL, &http.Response{
+		Header: http.Header{"Set-Cookie": []string{"session=from-resin; Path=/; Secure; Max-Age=3600"}},
+	})
+	header := http.Header{}
+	ApplyCodexCookieJarToHeaders(account, publicURL.String(), header)
+	if got := header.Get("Cookie"); !strings.Contains(got, "session=from-resin") {
+		t.Fatalf("public request did not receive Resin response cookie: %q", got)
+	}
+}
+
+func decodeOailbPayloadForTest(header string) string {
+	value := strings.TrimPrefix(strings.TrimSpace(header), "__oailb=")
+	parts := strings.Split(value, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	return string(payload)
 }
 
 func setCookieJarTestSetting(enabled bool) {

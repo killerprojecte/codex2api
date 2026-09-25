@@ -1211,6 +1211,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api.GET("/accounts/:id/test", h.TestConnection)
 	api.POST("/accounts/:id/codex-websocket-session/refresh", h.RefreshCodexWebsocketSession)
 	api.POST("/accounts/:id/codex-websocket-session/mode", h.ToggleCodexWebsocketSessionMode)
+	api.POST("/accounts/:id/codex-edge/rotate", h.RotateCodexEdge)
 	api.GET("/accounts/:id/model-detector", h.DetectCodexModel)
 	api.GET("/accounts/:id/quality-test/options", h.QualityTestOptions)
 	api.POST("/accounts/:id/quality-test", h.CreateQualityTestJob)

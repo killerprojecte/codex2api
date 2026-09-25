@@ -888,6 +888,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ enabled }),
     }),
+  rotateCodexEdge: (id: number) =>
+    request<{ domain: string; index: number; next_switch_at: string }>(
+      `/accounts/${id}/codex-edge/rotate`,
+      { method: 'POST' },
+    ),
   getAccount: (id: number, signal?: AbortSignal) =>
     request<AccountRow>(`/accounts/${id}`, { signal }),
   forceUsageProbe: () =>

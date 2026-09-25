@@ -457,7 +457,6 @@ func FetchCodexModelsManifest(ctx context.Context, account *auth.Account, proxyU
 	if codexModelsManifestURLForTest != "" {
 		endpoint = codexModelsManifestURLForTest
 	}
-	endpoint = CodexURLForAccount(account, endpoint)
 	return fetchCodexModelsManifestWithURL(ctx, account, proxyURL, endpoint, clientVersion, ifNoneMatch)
 }
 
@@ -489,6 +488,7 @@ func fetchCodexModelsManifestWithURL(ctx context.Context, account *auth.Account,
 	req.Header.Set("User-Agent", replaceCodexUserAgentVersion(defaultCodexCLIUserAgent, clientVersion))
 	req.Header.Set("Originator", Originator)
 	req.Header.Set("Version", clientVersion)
+	ApplyCodexCookieJarToHeaders(account, endpoint, req.Header)
 	if ifNoneMatch = strings.TrimSpace(ifNoneMatch); ifNoneMatch != "" {
 		req.Header.Set("If-None-Match", ifNoneMatch)
 	}

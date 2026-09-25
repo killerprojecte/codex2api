@@ -1,8 +1,6 @@
 package proxy
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -114,11 +112,12 @@ func codexCookieURLFromParsed(input *url.URL) *url.URL {
 	return &u
 }
 
-// ApplyCodexCookieJarToHeaders adds eligible jar cookies to a WebSocket
-// handshake. Gorilla's Dialer consults its jar using the original wss URL;
+// ApplyCodexCookieJarToHeaders adds eligible jar cookies to an outgoing
+// request. Gorilla's Dialer consults its jar using the original wss URL;
 // doing this explicitly with https preserves Secure cookies as well. Existing
 // cookie names supplied by the caller win, so custom authentication headers
-// are not silently overwritten.
+// are not silently overwritten. When edge rotation is active, __oailb is
+// rewritten in place while the request URL remains the public chatgpt.com URL.
 func ApplyCodexCookieJarToHeaders(account *auth.Account, rawURL string, headers http.Header) {
 	if headers == nil {
 		return
@@ -132,11 +131,12 @@ func ApplyCodexCookieJarToHeaders(account *auth.Account, rawURL string, headers 
 		return
 	}
 	cookies := jar.Cookies(u)
-	if len(cookies) == 0 {
+	if len(cookies) == 0 && len(headers.Values("Cookie")) == 0 {
 		return
 	}
 	seen := make(map[string]struct{})
 	parts := make([]string, 0, len(cookies))
+	edgeDomain := codexCurrentEdgeDomain(account)
 	for _, value := range headers.Values("Cookie") {
 		for _, part := range strings.Split(value, ";") {
 			part = strings.TrimSpace(part)
@@ -144,8 +144,15 @@ func ApplyCodexCookieJarToHeaders(account *auth.Account, rawURL string, headers 
 				continue
 			}
 			name := part
+			cookieValue := ""
 			if index := strings.IndexByte(part, '='); index >= 0 {
 				name = strings.TrimSpace(part[:index])
+				cookieValue = part[index+1:]
+			}
+			if name == "__oailb" && edgeDomain != "" {
+				if rewritten := rewriteCodexEdgeCookieValue(cookieValue, edgeDomain); rewritten != cookieValue {
+					part = name + "=" + rewritten
+				}
 			}
 			if name != "" {
 				seen[name] = struct{}{}
@@ -160,7 +167,11 @@ func ApplyCodexCookieJarToHeaders(account *auth.Account, rawURL string, headers 
 		if _, exists := seen[cookie.Name]; exists {
 			continue
 		}
-		parts = append(parts, cookie.Name+"="+cookie.Value)
+		value := cookie.Value
+		if cookie.Name == "__oailb" && edgeDomain != "" {
+			value = rewriteCodexEdgeCookieValue(value, edgeDomain)
+		}
+		parts = append(parts, cookie.Name+"="+value)
 		seen[cookie.Name] = struct{}{}
 	}
 	if len(parts) > 0 {
@@ -189,53 +200,52 @@ func UpdateCodexCookieJarFromResponse(account *auth.Account, responseURL *url.UR
 	if jar == nil {
 		return
 	}
-	u := codexCookieURLFromParsed(responseURL)
+	u := codexCookieResponseURL(account, responseURL)
 	if u == nil && response.Request != nil {
-		u = codexCookieURLFromParsed(response.Request.URL)
+		u = codexCookieResponseURL(account, response.Request.URL)
 	}
 	if u == nil {
 		return
 	}
 	if cookies := response.Cookies(); len(cookies) > 0 {
 		jar.SetCookies(u, cookies)
-		// __oailb is host scoped by upstream. Also index it under the selected
-		// edge host so the next request can send it after routing changes.
-		for _, cookie := range cookies {
-			if cookie == nil || cookie.Name != "__oailb" {
-				continue
-			}
-			if edge := codexEdgeDomainIndexFromCookie(cookie, CurrentRuntimeSettings().CodexEdgeRotationMax); edge != "" {
-				edgeURL := *u
-				edgeURL.Host = edge
-				jar.SetCookies(&edgeURL, []*http.Cookie{cookie})
-			}
-		}
 	}
 }
 
-func codexEdgeDomainIndexFromCookie(cookie *http.Cookie, max int) string {
-	if cookie == nil {
-		return ""
+// codexCookieResponseURL maps a Resin reverse-proxy response back to the
+// public Codex URL before storing Set-Cookie values. Otherwise a cookie
+// received from a Resin host would be scoped to that internal host and would
+// never be returned for the next chatgpt.com request.
+func codexCookieResponseURL(account *auth.Account, responseURL *url.URL) *url.URL {
+	u := codexCookieURLFromParsed(responseURL)
+	if u == nil || account == nil || !resinCarriesEgress(account) {
+		return u
 	}
-	parts := strings.Split(cookie.Value, ".")
-	if len(parts) < 2 {
-		return ""
+	cfg := GetResinConfig()
+	if cfg == nil {
+		return u
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	base, err := url.Parse(cfg.BaseURL)
+	if err != nil || base.Host == "" {
+		return u
+	}
+	basePath := strings.TrimRight(base.Path, "/")
+	prefix := basePath + "/" + strings.Trim(cfg.PlatformName, "/") + "/"
+	if !strings.HasPrefix(u.Path, prefix) {
+		return u
+	}
+	encoded := strings.TrimPrefix(u.Path, prefix)
+	parts := strings.SplitN(encoded, "/", 3)
+	if len(parts) < 2 || !strings.EqualFold(parts[0], "https") || !strings.EqualFold(parts[1], "chatgpt.com") {
+		return u
+	}
+	public, err := url.Parse(CodexBaseURL)
 	if err != nil {
-		payload, err = base64.URLEncoding.DecodeString(parts[1])
+		return u
 	}
-	if err != nil {
-		return ""
+	if len(parts) == 3 && parts[2] != "" {
+		public.Path = "/" + parts[2]
 	}
-	var data struct {
-		Host string `json:"host"`
-	}
-	if json.Unmarshal(payload, &data) != nil {
-		return ""
-	}
-	if codexEdgeDomainIndex(data.Host, max) == 0 {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(data.Host))
+	public.RawQuery = u.RawQuery
+	return public
 }

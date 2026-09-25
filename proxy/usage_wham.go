@@ -348,7 +348,6 @@ func QueryWhamUsage(ctx context.Context, account *auth.Account, proxyURL string)
 	if whamURLForTest != "" {
 		url = whamURLForTest
 	}
-	url = CodexURLForAccount(account, url)
 	return queryWhamUsageWithURL(ctx, account, proxyURL, url)
 }
 
@@ -390,6 +389,7 @@ func queryWhamUsageWithURL(ctx context.Context, account *auth.Account, proxyURL,
 	if accountID := account.EffectiveAccountID(); accountID != "" {
 		req.Header.Set("chatgpt-account-id", accountID)
 	}
+	ApplyCodexCookieJarToHeaders(account, url, req.Header)
 	client := whamHTTPClient(req, account, resinClient, viaResin, proxyURL)
 
 	resp, err := client.Do(req)
@@ -479,7 +479,6 @@ func QueryWhamResetCredits(ctx context.Context, account *auth.Account, proxyURL 
 	if whamResetCreditsURLForTest != "" {
 		url = whamResetCreditsURLForTest
 	}
-	url = CodexURLForAccount(account, url)
 	return queryWhamResetCreditsWithURL(ctx, account, proxyURL, url)
 }
 
@@ -505,6 +504,7 @@ func queryWhamResetCreditsWithURL(ctx context.Context, account *auth.Account, pr
 	if accountID := account.EffectiveAccountID(); accountID != "" {
 		req.Header.Set("chatgpt-account-id", accountID)
 	}
+	ApplyCodexCookieJarToHeaders(account, url, req.Header)
 	client := whamHTTPClient(req, account, resinClient, viaResin, proxyURL)
 
 	resp, err := client.Do(req)
@@ -562,7 +562,6 @@ func ConsumeResetCreditParsed(ctx context.Context, account *auth.Account, proxyU
 	if whamConsumeURLForTest != "" {
 		url = whamConsumeURLForTest
 	}
-	url = CodexURLForAccount(account, url)
 	return consumeResetCreditWithURL(ctx, account, proxyURL, url, redeemRequestID)
 }
 
@@ -594,6 +593,7 @@ func consumeResetCreditWithURL(ctx context.Context, account *auth.Account, proxy
 	if accountID := account.EffectiveAccountID(); accountID != "" {
 		req.Header.Set("chatgpt-account-id", accountID)
 	}
+	ApplyCodexCookieJarToHeaders(account, url, req.Header)
 	client := whamHTTPClient(req, account, resinClient, viaResin, proxyURL)
 
 	resp, err := client.Do(req)

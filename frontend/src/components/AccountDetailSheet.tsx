@@ -195,6 +195,7 @@ export interface AccountDetailSheetProps {
   refreshing?: boolean;
   authJsonExporting?: boolean;
   codexSessionRefreshing?: boolean;
+  codexEdgeRotating?: boolean;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -206,6 +207,7 @@ export interface AccountDetailSheetProps {
   onRefresh: () => void;
   onRefreshCodexSession?: () => void;
   onToggleCodexSession?: () => void;
+  onRotateCodexEdge?: () => void;
   onGenerateAuthJson: () => void;
   onToggleEnabled: () => void;
   onToggleLock: () => void;
@@ -234,6 +236,7 @@ export default function AccountDetailSheet({
   refreshing = false,
   authJsonExporting = false,
   codexSessionRefreshing = false,
+  codexEdgeRotating = false,
   onClose,
   onPrev,
   onNext,
@@ -245,6 +248,7 @@ export default function AccountDetailSheet({
   onRefresh,
   onRefreshCodexSession,
   onToggleCodexSession,
+  onRotateCodexEdge,
   onGenerateAuthJson,
   onToggleEnabled,
   onToggleLock,
@@ -1048,6 +1052,20 @@ export default function AccountDetailSheet({
                   {codexSessionRefreshing
                     ? t("accounts.codexSessionRefreshing")
                     : t("accounts.codexSessionRefresh")}
+                </Button>
+              ) : null}
+              {onRotateCodexEdge ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={codexEdgeRotating}
+                  onClick={onRotateCodexEdge}
+                >
+                  <RotateCcw className={`size-3.5 ${codexEdgeRotating ? "animate-spin" : ""}`} />
+                  {codexEdgeRotating
+                    ? t("accounts.codexEdgeRotating")
+                    : t("accounts.codexEdgeRotate")}
                 </Button>
               ) : null}
               {showAuthJson && (

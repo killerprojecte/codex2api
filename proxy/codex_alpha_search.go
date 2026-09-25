@@ -138,7 +138,6 @@ func ForwardCodexAlphaSearch(ctx context.Context, account *auth.Account, proxyUR
 	if codexAlphaSearchURLForTest != "" {
 		endpoint = codexAlphaSearchURLForTest
 	}
-	endpoint = CodexURLForAccount(account, endpoint)
 
 	// standalone 搜索是模型驱动的检索回合，上游耗时可达数十秒。
 	reqCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
@@ -163,6 +162,7 @@ func ForwardCodexAlphaSearch(ctx context.Context, account *auth.Account, proxyUR
 	if accountID := account.EffectiveAccountID(); accountID != "" {
 		req.Header.Set("chatgpt-account-id", accountID)
 	}
+	ApplyCodexCookieJarToHeaders(account, endpoint, req.Header)
 
 	// 复用网关同款 transport（支持 uTLS Chrome 指纹），与 /responses、清单透传一致。
 	// 池化而非每次新建，避免一次性 uTLS transport 泄漏连接（issue #446）。
