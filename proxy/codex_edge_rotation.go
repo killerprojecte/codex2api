@@ -108,7 +108,10 @@ func codexEdgeDomain(index int) string {
 	return fmt.Sprintf("chat.gateway.unified-%d.api.openai.com", index)
 }
 
-func observeCodexEdgeCookie(account *auth.Account, cookie *http.Cookie, now time.Time) {
+// seedCodexEdgeStateFromCookie initializes the rotation sequence from the
+// cookie currently stored in the account jar. An upstream Set-Cookie must
+// never move an already active rotation backward or forward.
+func seedCodexEdgeStateFromCookie(account *auth.Account, cookie *http.Cookie, now time.Time) {
 	if account == nil || cookie == nil || !CurrentRuntimeSettings().CodexEdgeRotationEnabled {
 		return
 	}
@@ -159,8 +162,9 @@ func CodexEdgeStateForAccount(account *auth.Account) (string, time.Time, int) {
 	}
 	// Detail pages can be opened before the first request after startup. Seed
 	// the visible state from the persisted __oailb cookie so they show the
-	// current node rather than the chatgpt.com placeholder.
-	_ = codexCurrentEdgeDomain(account)
+	// current node rather than the chatgpt.com placeholder. Reading status does
+	// not advance an expired deadline; the next outgoing request does that.
+	_ = codexSeedCurrentEdgeDomain(account)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.domain == "" {
@@ -182,7 +186,7 @@ func RotateCodexEdgeForAccount(account *auth.Account) (string, time.Time, int, e
 		return "", time.Time{}, 0, fmt.Errorf("Codex Cookie Jar 与边缘节点轮询未开启")
 	}
 	// Seed from the current __oailb cookie when the process has no state yet.
-	_ = codexCurrentEdgeDomain(account)
+	_ = codexSeedCurrentEdgeDomain(account)
 	state := codexEdgeStateForAccount(account)
 	if state == nil {
 		return "", time.Time{}, 0, fmt.Errorf("edge state unavailable")
@@ -206,6 +210,36 @@ func codexCurrentEdgeDomain(account *auth.Account) string {
 	if account == nil || !cfg.CodexCookieJarEnabled || !cfg.CodexEdgeRotationEnabled {
 		return ""
 	}
+	if codexSeedCurrentEdgeDomain(account) == "" {
+		return ""
+	}
+	state := codexEdgeStateForAccount(account)
+	if state == nil {
+		return ""
+	}
+	now := time.Now()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if !state.nextSwitchAt.IsZero() && !now.Before(state.nextSwitchAt) {
+		next := state.index + 1
+		if next > cfg.CodexEdgeRotationMax {
+			next = 1
+		}
+		state.index, state.domain = next, codexEdgeDomain(next)
+		state.nextSwitchAt = now.Add(time.Duration(cfg.CodexEdgeRotationIntervalSec) * time.Second)
+	}
+	return state.domain
+}
+
+// codexSeedCurrentEdgeDomain restores the starting node from the account's
+// current jar without advancing the rotation deadline. It is safe for status
+// pages and manual-rotation preparation; automatic advancement belongs in
+// codexCurrentEdgeDomain, which is called while injecting a request.
+func codexSeedCurrentEdgeDomain(account *auth.Account) string {
+	cfg := CurrentRuntimeSettings()
+	if account == nil || !cfg.CodexCookieJarEnabled || !cfg.CodexEdgeRotationEnabled {
+		return ""
+	}
 	state := codexEdgeStateForAccount(account)
 	if state == nil {
 		return ""
@@ -220,28 +254,15 @@ func codexCurrentEdgeDomain(account *auth.Account) string {
 			if u, err := url.Parse("https://chatgpt.com/backend-api/codex/responses"); err == nil {
 				for _, cookie := range jar.Cookies(u) {
 					if cookie != nil && cookie.Name == "__oailb" {
-						observeCodexEdgeCookie(account, cookie, time.Now())
+						seedCodexEdgeStateFromCookie(account, cookie, time.Now())
 						break
 					}
 				}
 			}
 		}
 	}
-	now := time.Now()
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.domain == "" {
-		state.nextSwitchAt = now.Add(time.Duration(cfg.CodexEdgeRotationIntervalSec) * time.Second)
-		return ""
-	}
-	if !state.nextSwitchAt.IsZero() && !now.Before(state.nextSwitchAt) {
-		next := state.index + 1
-		if next > cfg.CodexEdgeRotationMax {
-			next = 1
-		}
-		state.index, state.domain = next, codexEdgeDomain(next)
-		state.nextSwitchAt = now.Add(time.Duration(cfg.CodexEdgeRotationIntervalSec) * time.Second)
-	}
 	return state.domain
 }
 

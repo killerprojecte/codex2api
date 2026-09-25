@@ -163,6 +163,19 @@ func TestCodexEdgeRotationStartsFromCookieAndAdvances(t *testing.T) {
 	if !strings.Contains(decodeOailbPayloadForTest(headers.Get("Cookie")), "unified-2") {
 		t.Fatalf("starting edge was not wrapped in __oailb: %q", headers.Get("Cookie"))
 	}
+	// A response may refresh __oailb with a different host, but that must not
+	// change the active rotation sequence. The next request still injects the
+	// selected node before sending.
+	otherPayload, _ := json.Marshal(map[string]any{"host": "chat.gateway.unified-1.api.openai.com"})
+	otherValue := "e30." + base64.RawURLEncoding.EncodeToString(otherPayload) + ".sig"
+	UpdateCodexCookieJarFromResponse(account, u, &http.Response{Header: http.Header{
+		"Set-Cookie": []string{"__oailb=" + otherValue + "; Path=/; Max-Age=3600"},
+	}})
+	headers = http.Header{}
+	ApplyCodexCookieJarToHeaders(account, "https://chatgpt.com/backend-api/codex/responses", headers)
+	if !strings.Contains(decodeOailbPayloadForTest(headers.Get("Cookie")), "unified-2") {
+		t.Fatalf("upstream Set-Cookie changed active edge: %q", headers.Get("Cookie"))
+	}
 	time.Sleep(1100 * time.Millisecond)
 	headers = http.Header{}
 	ApplyCodexCookieJarToHeaders(account, "https://chatgpt.com/backend-api/codex/responses", headers)

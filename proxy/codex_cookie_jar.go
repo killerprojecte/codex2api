@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/codex2api/auth"
 )
@@ -182,19 +181,11 @@ func ApplyCodexCookieJarToHeaders(account *auth.Account, rawURL string, headers 
 // UpdateCodexCookieJarFromResponse explicitly stores handshake cookies. The
 // HTTP client already does this automatically, but keeping the operation here
 // makes WebSocket handshakes and any custom RoundTripper follow the same
-// expiry/update rules.
+// expiry/update rules. It never changes the active edge rotation state;
+// rotation is applied by ApplyCodexCookieJarToHeaders immediately before send.
 func UpdateCodexCookieJarFromResponse(account *auth.Account, responseURL *url.URL, response *http.Response) {
 	if response == nil {
 		return
-	}
-	// The edge JWT is useful even when the Cookie Jar switch is disabled; the
-	// rotation switch itself decides whether it may affect routing.
-	if cookies := response.Cookies(); len(cookies) > 0 {
-		for _, cookie := range cookies {
-			if cookie != nil && cookie.Name == "__oailb" {
-				observeCodexEdgeCookie(account, cookie, time.Now())
-			}
-		}
 	}
 	jar := CodexCookieJarForAccount(account)
 	if jar == nil {
