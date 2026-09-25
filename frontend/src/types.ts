@@ -369,8 +369,12 @@ export interface AccountRow {
   codex_last_refresh_at?: string
   codex_refresh_error?: string
   codex_previous_id?: string
+  codex_websocket_session_enabled?: boolean
   codex_websocket_session_id?: string
   codex_websocket_session_expires_at?: ISODateString
+  codex_edge_domain?: string
+  codex_edge_next_switch_at?: ISODateString
+  codex_edge_index?: number
   upstream_request_id_header?: string | null
   detail_loaded?: boolean
   id: number
@@ -2158,6 +2162,10 @@ export interface SystemSettings {
   fast_scheduler_enabled: boolean
   scheduler_engine: 'legacy' | 'shadow' | 'indexed'
   codex_force_websocket: boolean
+  codex_cookie_jar_enabled: boolean
+  codex_edge_rotation_enabled: boolean
+  codex_edge_rotation_interval_sec: number
+  codex_edge_rotation_max: number
   codex_telemetry_enabled: boolean
   codex_telemetry_timing_debug: boolean
   codex_request_compression: boolean

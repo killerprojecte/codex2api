@@ -348,6 +348,7 @@ func QueryWhamUsage(ctx context.Context, account *auth.Account, proxyURL string)
 	if whamURLForTest != "" {
 		url = whamURLForTest
 	}
+	url = CodexURLForAccount(account, url)
 	return queryWhamUsageWithURL(ctx, account, proxyURL, url)
 }
 
@@ -392,6 +393,7 @@ func queryWhamUsageWithURL(ctx context.Context, account *auth.Account, proxyURL,
 	client := whamHTTPClient(req, account, resinClient, viaResin, proxyURL)
 
 	resp, err := client.Do(req)
+	UpdateCodexCookieJarFromResponse(account, req.URL, resp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wham request: %w", err)
 	}
@@ -477,6 +479,7 @@ func QueryWhamResetCredits(ctx context.Context, account *auth.Account, proxyURL 
 	if whamResetCreditsURLForTest != "" {
 		url = whamResetCreditsURLForTest
 	}
+	url = CodexURLForAccount(account, url)
 	return queryWhamResetCreditsWithURL(ctx, account, proxyURL, url)
 }
 
@@ -505,6 +508,7 @@ func queryWhamResetCreditsWithURL(ctx context.Context, account *auth.Account, pr
 	client := whamHTTPClient(req, account, resinClient, viaResin, proxyURL)
 
 	resp, err := client.Do(req)
+	UpdateCodexCookieJarFromResponse(account, req.URL, resp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reset-credits list request: %w", err)
 	}
@@ -558,6 +562,7 @@ func ConsumeResetCreditParsed(ctx context.Context, account *auth.Account, proxyU
 	if whamConsumeURLForTest != "" {
 		url = whamConsumeURLForTest
 	}
+	url = CodexURLForAccount(account, url)
 	return consumeResetCreditWithURL(ctx, account, proxyURL, url, redeemRequestID)
 }
 
@@ -592,6 +597,7 @@ func consumeResetCreditWithURL(ctx context.Context, account *auth.Account, proxy
 	client := whamHTTPClient(req, account, resinClient, viaResin, proxyURL)
 
 	resp, err := client.Do(req)
+	UpdateCodexCookieJarFromResponse(account, req.URL, resp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reset-credit request: %w", err)
 	}

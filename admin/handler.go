@@ -1210,6 +1210,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api.POST("/accounts/invite/plan/probe", h.ProbeInviteGuidePlan)
 	api.GET("/accounts/:id/test", h.TestConnection)
 	api.POST("/accounts/:id/codex-websocket-session/refresh", h.RefreshCodexWebsocketSession)
+	api.POST("/accounts/:id/codex-websocket-session/mode", h.ToggleCodexWebsocketSessionMode)
 	api.GET("/accounts/:id/model-detector", h.DetectCodexModel)
 	api.GET("/accounts/:id/quality-test/options", h.QualityTestOptions)
 	api.POST("/accounts/:id/quality-test", h.CreateQualityTestJob)
@@ -1650,8 +1651,12 @@ type accountResponse struct {
 	CodexLastRefreshAt             string `json:"codex_last_refresh_at,omitempty"`
 	CodexRefreshError              string `json:"codex_refresh_error,omitempty"`
 	CodexPreviousID                string `json:"codex_previous_id,omitempty"`
+	CodexWebsocketSessionEnabled   bool   `json:"codex_websocket_session_enabled"`
 	CodexWebsocketSessionID        string `json:"codex_websocket_session_id,omitempty"`
 	CodexWebsocketSessionExpiresAt string `json:"codex_websocket_session_expires_at,omitempty"`
+	CodexEdgeDomain                string `json:"codex_edge_domain,omitempty"`
+	CodexEdgeNextSwitchAt          string `json:"codex_edge_next_switch_at,omitempty"`
+	CodexEdgeIndex                 int    `json:"codex_edge_index,omitempty"`
 	UpstreamRequestIDHeader        string `json:"upstream_request_id_header"`
 	DetailLoaded                   bool   `json:"detail_loaded,omitempty"`
 	ID                             int64  `json:"id"`
@@ -9195,6 +9200,10 @@ type settingsResponse struct {
 	FastSchedulerEnabled                bool   `json:"fast_scheduler_enabled"`
 	SchedulerEngine                     string `json:"scheduler_engine"`
 	CodexForceWebsocket                 bool   `json:"codex_force_websocket"`
+	CodexCookieJarEnabled               bool   `json:"codex_cookie_jar_enabled"`
+	CodexEdgeRotationEnabled            bool   `json:"codex_edge_rotation_enabled"`
+	CodexEdgeRotationIntervalSec        int    `json:"codex_edge_rotation_interval_sec"`
+	CodexEdgeRotationMax                int    `json:"codex_edge_rotation_max"`
 	CodexRequestCompression             bool   `json:"codex_request_compression"`
 	CodexWSWeakNetworkMode              bool   `json:"codex_ws_weak_network_mode"`
 	CodexWSKeepaliveEnabled             bool   `json:"codex_ws_keepalive_enabled"`
@@ -9383,6 +9392,10 @@ type updateSettingsReq struct {
 	FastSchedulerEnabled                *bool                            `json:"fast_scheduler_enabled"`
 	SchedulerEngine                     *string                          `json:"scheduler_engine"`
 	CodexForceWebsocket                 *bool                            `json:"codex_force_websocket"`
+	CodexCookieJarEnabled               *bool                            `json:"codex_cookie_jar_enabled"`
+	CodexEdgeRotationEnabled            *bool                            `json:"codex_edge_rotation_enabled"`
+	CodexEdgeRotationIntervalSec        *int                             `json:"codex_edge_rotation_interval_sec"`
+	CodexEdgeRotationMax                *int                             `json:"codex_edge_rotation_max"`
 	CodexRequestCompression             *bool                            `json:"codex_request_compression"`
 	CodexWSWeakNetworkMode              *bool                            `json:"codex_ws_weak_network_mode"`
 	CodexWSKeepaliveEnabled             *bool                            `json:"codex_ws_keepalive_enabled"`
@@ -10215,6 +10228,10 @@ func (h *Handler) GetSettings(c *gin.Context) {
 		FastSchedulerEnabled:                h.store.FastSchedulerEnabled(),
 		SchedulerEngine:                     h.store.SchedulerEngine(),
 		CodexForceWebsocket:                 h.store.CodexForceWebsocket(),
+		CodexCookieJarEnabled:               runtimeCfg.CodexCookieJarEnabled,
+		CodexEdgeRotationEnabled:            runtimeCfg.CodexEdgeRotationEnabled,
+		CodexEdgeRotationIntervalSec:        runtimeCfg.CodexEdgeRotationIntervalSec,
+		CodexEdgeRotationMax:                runtimeCfg.CodexEdgeRotationMax,
 		CodexRequestCompression:             h.store.CodexRequestCompression(),
 		CodexWSWeakNetworkMode:              runtimeCfg.CodexWSWeakNetworkMode,
 		CodexWSKeepaliveEnabled:             h.store.CodexWSKeepaliveEnabled(),
@@ -10946,6 +10963,30 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		h.store.SetCodexForceWebsocket(*req.CodexForceWebsocket)
 		runtimeCfg.CodexForceWebsocket = *req.CodexForceWebsocket
 		log.Printf("设置已更新: codex_force_websocket = %t", *req.CodexForceWebsocket)
+	}
+	if req.CodexCookieJarEnabled != nil {
+		runtimeCfg.CodexCookieJarEnabled = *req.CodexCookieJarEnabled
+		if !*req.CodexCookieJarEnabled {
+			proxy.ResetAllCodexCookieJars()
+		}
+		log.Printf("设置已更新: codex_cookie_jar_enabled = %t", *req.CodexCookieJarEnabled)
+	}
+	if req.CodexEdgeRotationEnabled != nil {
+		runtimeCfg.CodexEdgeRotationEnabled = *req.CodexEdgeRotationEnabled
+		if !*req.CodexEdgeRotationEnabled {
+			proxy.ResetAllCodexEdgeStates()
+		}
+		log.Printf("设置已更新: codex_edge_rotation_enabled = %t", *req.CodexEdgeRotationEnabled)
+	}
+	if req.CodexEdgeRotationIntervalSec != nil {
+		runtimeCfg.CodexEdgeRotationIntervalSec = *req.CodexEdgeRotationIntervalSec
+		proxy.ResetAllCodexEdgeStates()
+		log.Printf("设置已更新: codex_edge_rotation_interval_sec = %d", *req.CodexEdgeRotationIntervalSec)
+	}
+	if req.CodexEdgeRotationMax != nil {
+		runtimeCfg.CodexEdgeRotationMax = *req.CodexEdgeRotationMax
+		proxy.ResetAllCodexEdgeStates()
+		log.Printf("设置已更新: codex_edge_rotation_max = %d", *req.CodexEdgeRotationMax)
 	}
 	if req.CodexRequestCompression != nil {
 		h.store.SetCodexRequestCompression(*req.CodexRequestCompression)
@@ -11706,37 +11747,43 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 
 	// 持久化保存到数据库
 	err = h.db.UpdateSystemSettings(c.Request.Context(), &database.SystemSettings{
-		SiteName:                            siteName,
-		SiteLogo:                            siteLogo,
-		MaxConcurrency:                      h.store.GetMaxConcurrency(),
-		GlobalRPM:                           h.rateLimiter.GetRPM(),
-		TestModel:                           h.store.GetTestModel(),
-		CodexImagesMainModel:                codexImagesMainModel,
-		TestContent:                         h.store.GetTestContent(),
-		TestConcurrency:                     h.store.GetTestConcurrency(),
-		BackgroundRefreshIntervalMinutes:    h.store.GetBackgroundRefreshIntervalMinutes(),
-		UsageProbeMaxAgeMinutes:             h.store.GetUsageProbeMaxAgeMinutes(),
-		UsageProbeConcurrency:               h.store.GetUsageProbeConcurrency(),
-		UsageProbeResponsesFallbackEnabled:  h.store.UsageProbeResponsesFallbackEnabled(),
-		RecoveryProbeIntervalMinutes:        h.store.GetRecoveryProbeIntervalMinutes(),
-		LazyMode:                            h.store.GetLazyMode(),
-		CodexOAuthKeepaliveEnabled:          h.store.GetCodexOAuthKeepalive(),
-		ProxyURL:                            h.store.GetProxyURL(),
-		PgMaxConns:                          h.pgMaxConns,
-		RedisPoolSize:                       h.redisPoolSize,
-		AutoCleanUnauthorized:               h.store.GetAutoCleanUnauthorized(),
-		AutoCleanRateLimited:                h.store.GetAutoCleanRateLimited(),
-		AdminSecret:                         currentAdminSecret,
-		AutoCleanFullUsage:                  h.store.GetAutoCleanFullUsage(),
-		AutoCleanError:                      h.store.GetAutoCleanError(),
-		AutoCleanExpired:                    h.store.GetAutoCleanExpired(),
-		AutoResetCreditsEnabled:             runtimeCfg.AutoResetCreditsEnabled,
-		AutoResetCreditsBeforeExpiryMin:     runtimeCfg.AutoResetCreditsBeforeExpiryMin,
-		AutoActivate5hWindowEnabled:         runtimeCfg.AutoActivate5hWindowEnabled,
-		ProxyPoolEnabled:                    h.store.GetProxyPoolEnabled(),
-		FastSchedulerEnabled:                h.store.FastSchedulerEnabled(),
-		SchedulerEngine:                     h.store.SchedulerEngine(),
-		CodexForceWebsocket:                 h.store.CodexForceWebsocket(),
+		SiteName:                           siteName,
+		SiteLogo:                           siteLogo,
+		MaxConcurrency:                     h.store.GetMaxConcurrency(),
+		GlobalRPM:                          h.rateLimiter.GetRPM(),
+		TestModel:                          h.store.GetTestModel(),
+		CodexImagesMainModel:               codexImagesMainModel,
+		TestContent:                        h.store.GetTestContent(),
+		TestConcurrency:                    h.store.GetTestConcurrency(),
+		BackgroundRefreshIntervalMinutes:   h.store.GetBackgroundRefreshIntervalMinutes(),
+		UsageProbeMaxAgeMinutes:            h.store.GetUsageProbeMaxAgeMinutes(),
+		UsageProbeConcurrency:              h.store.GetUsageProbeConcurrency(),
+		UsageProbeResponsesFallbackEnabled: h.store.UsageProbeResponsesFallbackEnabled(),
+		RecoveryProbeIntervalMinutes:       h.store.GetRecoveryProbeIntervalMinutes(),
+		LazyMode:                           h.store.GetLazyMode(),
+		CodexOAuthKeepaliveEnabled:         h.store.GetCodexOAuthKeepalive(),
+		ProxyURL:                           h.store.GetProxyURL(),
+		PgMaxConns:                         h.pgMaxConns,
+		RedisPoolSize:                      h.redisPoolSize,
+		AutoCleanUnauthorized:              h.store.GetAutoCleanUnauthorized(),
+		AutoCleanRateLimited:               h.store.GetAutoCleanRateLimited(),
+		AdminSecret:                        currentAdminSecret,
+		AutoCleanFullUsage:                 h.store.GetAutoCleanFullUsage(),
+		AutoCleanError:                     h.store.GetAutoCleanError(),
+		AutoCleanExpired:                   h.store.GetAutoCleanExpired(),
+		AutoResetCreditsEnabled:            runtimeCfg.AutoResetCreditsEnabled,
+		AutoResetCreditsBeforeExpiryMin:    runtimeCfg.AutoResetCreditsBeforeExpiryMin,
+		AutoActivate5hWindowEnabled:        runtimeCfg.AutoActivate5hWindowEnabled,
+		ProxyPoolEnabled:                   h.store.GetProxyPoolEnabled(),
+		FastSchedulerEnabled:               h.store.FastSchedulerEnabled(),
+		SchedulerEngine:                    h.store.SchedulerEngine(),
+		CodexForceWebsocket:                h.store.CodexForceWebsocket(),
+		CodexEdgeConfig: proxy.EncodeCodexEdgeConfigJSON(proxy.CodexEdgeConfig{
+			CookieJarEnabled:        runtimeCfg.CodexCookieJarEnabled,
+			EdgeRotationEnabled:     runtimeCfg.CodexEdgeRotationEnabled,
+			EdgeRotationIntervalSec: runtimeCfg.CodexEdgeRotationIntervalSec,
+			EdgeRotationMax:         runtimeCfg.CodexEdgeRotationMax,
+		}),
 		CodexRequestCompression:             h.store.CodexRequestCompression(),
 		CodexWSWeakNetworkMode:              runtimeCfg.CodexWSWeakNetworkMode,
 		CodexWSKeepaliveEnabled:             h.store.CodexWSKeepaliveEnabled(),
@@ -12065,6 +12112,10 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		FastSchedulerEnabled:                h.store.FastSchedulerEnabled(),
 		SchedulerEngine:                     h.store.SchedulerEngine(),
 		CodexForceWebsocket:                 h.store.CodexForceWebsocket(),
+		CodexCookieJarEnabled:               runtimeCfg.CodexCookieJarEnabled,
+		CodexEdgeRotationEnabled:            runtimeCfg.CodexEdgeRotationEnabled,
+		CodexEdgeRotationIntervalSec:        runtimeCfg.CodexEdgeRotationIntervalSec,
+		CodexEdgeRotationMax:                runtimeCfg.CodexEdgeRotationMax,
 		CodexRequestCompression:             h.store.CodexRequestCompression(),
 		CodexWSWeakNetworkMode:              runtimeCfg.CodexWSWeakNetworkMode,
 		CodexWSKeepaliveEnabled:             h.store.CodexWSKeepaliveEnabled(),

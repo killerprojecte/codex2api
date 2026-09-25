@@ -27,13 +27,15 @@ func TestRefreshCodexWebsocketSessionStoresResponseAndSessionPair(t *testing.T) 
 		proxy.WebsocketExecuteFunc = previousExecutor
 		proxy.ResetCodexWebsocketConnectionsForAccount = previousResetHook
 		proxy.ResetCodexAccountWebsocketSession(account.ID())
+		proxy.SetCodexAccountWebsocketSessionEnabled(account.ID(), false)
 	})
+	proxy.SetCodexAccountWebsocketSessionEnabled(account.ID(), true)
 	proxy.ResetCodexWebsocketConnectionsForAccount = nil
 	var gotSessionID string
 	proxy.WebsocketExecuteFunc = func(_ context.Context, _ *auth.Account, body []byte, sessionID string, _ string, _ string, _ *proxy.DeviceProfileConfig, _ http.Header, _ string) (*http.Response, error) {
 		gotSessionID = sessionID
-		if gjson.GetBytes(body, "store").Bool() != true {
-			t.Fatalf("refresh payload must request store=true: %s", body)
+		if gjson.GetBytes(body, "store").Bool() {
+			t.Fatalf("refresh payload must use the native store=false shape: %s", body)
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,

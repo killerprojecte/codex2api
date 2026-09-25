@@ -112,6 +112,7 @@ func executeOpenAIResponsesWebsocket(ctx context.Context, account *auth.Account,
 	body := prepareOpenAIResponsesWebsocketBody(requestBody)
 	record := beginUpstreamTrace(ctx, account, proxyURL, true)
 	resp, err := openAIResponsesWebsocketPool.roundTrip(ctx, openAIResponsesWSSpec{
+		account:   account,
 		accountID: account.ID(),
 		baseURL:   strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		keyHash:   openAIResponsesWSKeyHash(apiKey),
@@ -129,6 +130,7 @@ func openAIResponsesWSKeyHash(apiKey string) string {
 }
 
 type openAIResponsesWSSpec struct {
+	account   *auth.Account
 	accountID int64
 	baseURL   string
 	keyHash   string
@@ -192,6 +194,7 @@ func (p *openAIResponsesWSPool) roundTrip(ctx context.Context, spec openAIRespon
 	if handshake != nil || err != nil || conn == nil {
 		return handshake, err
 	}
+	LogCodexResponsesPayload(spec.accountID, "websocket-relay", "send", body)
 	if err := writeOpenAIResponsesWS(ctx, conn.conn, body); err != nil {
 		reused := conn.reused
 		p.retire(conn)
@@ -202,6 +205,7 @@ func (p *openAIResponsesWSPool) roundTrip(ctx context.Context, spec openAIRespon
 		if handshake != nil || err != nil || conn == nil {
 			return handshake, err
 		}
+		LogCodexResponsesPayload(spec.accountID, "websocket-relay", "send", body)
 		if err := writeOpenAIResponsesWS(ctx, conn.conn, body); err != nil {
 			p.retire(conn)
 			return nil, fmt.Errorf("OpenAI Responses WebSocket 发送失败: %w", err)
@@ -251,6 +255,7 @@ func openAIResponsesWSStream(ctx context.Context, pool *openAIResponsesWSPool, c
 
 		terminal := false
 		err := readOpenAIResponsesWS(conn.conn, func(frame []byte) bool {
+			LogCodexResponsesPayload(conn.spec.accountID, "websocket-relay", "receive", frame)
 			if id := strings.TrimSpace(gjson.GetBytes(frame, "response.id").String()); id != "" {
 				pool.bind(conn, id)
 			}
@@ -378,12 +383,23 @@ func (p *openAIResponsesWSPool) dial(ctx context.Context, spec openAIResponsesWS
 		EnableCompression: true,
 		Proxy:             http.ProxyFromEnvironment,
 	}
+	handshakeHeaders := spec.headers
+	if CodexCookieJarForAccount(spec.account) != nil {
+		handshakeHeaders = spec.headers.Clone()
+		ApplyCodexCookieJarToHeaders(spec.account, spec.wsURL, handshakeHeaders)
+		// See wsrelay.Manager.createConnection: manually apply cookies using an
+		// https URL so Secure cookies are sent on a wss handshake.
+		dialer.Jar = nil
+	}
 	if spec.proxyURL != "" {
 		if err := configureOpenAIResponsesWSProxy(dialer, spec.proxyURL); err != nil {
 			return nil, nil, err
 		}
 	}
-	conn, resp, err := dialer.DialContext(ctx, spec.wsURL, spec.headers)
+	conn, resp, err := dialer.DialContext(ctx, spec.wsURL, handshakeHeaders)
+	if parsedURL, parseErr := url.Parse(spec.wsURL); parseErr == nil {
+		UpdateCodexCookieJarFromResponse(spec.account, parsedURL, resp)
+	}
 	if err != nil {
 		handshake, handshakeErr := openAIResponsesWSHandshakeResponse(err, resp)
 		if handshake != nil {

@@ -4764,6 +4764,17 @@ export default function Accounts() {
     }
   };
 
+  const handleToggleCodexSession = async (account: AccountRow) => {
+    const enabled = !account.codex_websocket_session_enabled;
+    try {
+      await api.setCodexWebsocketSessionMode(account.id, enabled);
+      await refreshAccountRow(account.id);
+      showToast(enabled ? t("accounts.codexSessionModeEnabledToast") : t("accounts.codexSessionModeDisabledToast"));
+    } catch (error) {
+      showToast(t("accounts.codexSessionModeFailed", { error: getErrorMessage(error) }), "error");
+    }
+  };
+
   const handleToggleLock = async (account: AccountRow) => {
     const newLocked = !account.locked;
     try {
@@ -9107,6 +9118,11 @@ export default function Accounts() {
             onRefreshCodexSession={
               detailAccount && supportsCodexWebsocketSession(detailAccount)
                 ? () => void handleRefreshCodexSession(detailAccount)
+                : undefined
+            }
+            onToggleCodexSession={
+              detailAccount && supportsCodexWebsocketSession(detailAccount)
+                ? () => void handleToggleCodexSession(detailAccount)
                 : undefined
             }
             onGenerateAuthJson={() => {

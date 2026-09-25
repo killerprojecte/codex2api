@@ -299,10 +299,30 @@ func (h *Handler) buildAccountResponse(
 	}
 	// 凭据里只要存在 usage 窗口键(哪怕是空数组)就代表 OAuth usage 采样跑过。
 	resp.ClaudeUsageWindowsProbed = strings.TrimSpace(row.GetCredential(auth.ClaudeUsageWindowsCredentialKey)) != ""
-	if session, ok := proxy.GetCodexAccountWebsocketSession(row.ID); ok {
+	resp.CodexWebsocketSessionEnabled = proxy.CodexAccountWebsocketSessionEnabled(row.ID)
+	if session, ok := proxy.GetCodexAccountWebsocketSession(row.ID); ok && resp.CodexWebsocketSessionEnabled {
 		resp.CodexPreviousID = session.PreviousResponseID
 		resp.CodexWebsocketSessionID = session.SessionID
 		resp.CodexWebsocketSessionExpiresAt = session.ExpiresAt.Format(time.RFC3339)
+	}
+	edgeAccount := runtimeAccount
+	if edgeAccount == nil && isOpenAIResponsesAccount {
+		// Detail requests can race account pool eviction. Reconstruct the same
+		// per-account key from the persisted workspace so status remains visible.
+		workspaceKey := strings.TrimSpace(effectiveWorkspaceID)
+		if workspaceKey == "" {
+			workspaceKey = row.GetCredential("account_id")
+		}
+		edgeAccount = &auth.Account{DBID: row.ID, AccountID: workspaceKey}
+	}
+	if edgeAccount != nil {
+		if domain, next, index := proxy.CodexEdgeStateForAccount(edgeAccount); domain != "" {
+			resp.CodexEdgeDomain = domain
+			resp.CodexEdgeIndex = index
+			if !next.IsZero() {
+				resp.CodexEdgeNextSwitchAt = next.Format(time.RFC3339)
+			}
+		}
 	}
 	if isAntigravityAccount {
 		resp.Models = antigravityPublishedModelsOrDefault(row.GetCredentialStringSlice("models"))

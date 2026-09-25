@@ -209,7 +209,11 @@ func legacyCodexTransportModeFromEnv() string {
 }
 
 func clientPoolKey(account *auth.Account, proxyURL, transportMode string) string {
-	return fmt.Sprintf("%d|%s|%s", account.ID(), strings.TrimSpace(proxyURL), transportMode)
+	jarMode := 0
+	if account != nil && !account.IsRelayStyle() && CurrentRuntimeSettings().CodexCookieJarEnabled {
+		jarMode = 1
+	}
+	return fmt.Sprintf("%d|%s|%s|jar%d", account.ID(), strings.TrimSpace(proxyURL), transportMode, jarMode)
 }
 
 func shouldRecyclePooledClient(err error) bool {
@@ -356,6 +360,7 @@ func getPooledClient(account *auth.Account, proxyURL string) *http.Client {
 		rotatable: transportMode == codexTransportModeStandard,
 		client: &http.Client{
 			Transport: transport,
+			Jar:       CodexCookieJarForAccount(account),
 			// 不设整体超时：http.Client.Timeout 覆盖包括读响应体在内的完整
 			// 生命周期，流式回答超过上限会在数据正常传输中被切断（issue #287，
 			// 复杂任务单回合可超过 10 分钟）。生命周期由请求 context 控制
@@ -717,9 +722,10 @@ func ExecuteRequest(ctx context.Context, account *auth.Account, requestBody []by
 		requestBody, _ = sjson.SetBytes(requestBody, "prompt_cache_key", cacheKey)
 	}
 
-	endpoint := CodexBaseURL + "/responses"
+	endpoint := CodexBaseURLForAccount(account) + "/responses"
 
 	requestBody, headers = prepareCodexProtocolMetadata(requestBody, account, cacheKey, headers)
+	LogCodexResponsesPayload(account.ID(), "http", "send", requestBody)
 
 	// 出站字节在选客户端之前定稿：send() 会因 Agent Identity 401 重注册而重放，
 	// 两次重放必须发同一份字节。routing hint 等需要读字段的改写点继续用明文
@@ -883,6 +889,7 @@ func ExecuteOpenAIResponsesRequest(ctx context.Context, account *auth.Account, r
 
 	client := getPooledClient(account, proxyURL)
 	send := func(body []byte) (*http.Response, error) {
+		LogCodexResponsesPayload(account.ID(), "http-relay", "send", body)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
 			return nil, ErrInternalError("创建请求失败", err)
@@ -1073,6 +1080,7 @@ func ExecuteOpenAIResponsesCompactRequest(ctx context.Context, account *auth.Acc
 		return nil, ErrInternalError("创建请求失败", err)
 	}
 	applyOpenAIResponsesRequestHeaders(req, account, apiKey, headers)
+	LogCodexResponsesPayload(account.ID(), "http-relay", "send", requestBody)
 
 	if err := ConsumeAPIKeyModelRequestQuota(ctx, gjson.GetBytes(requestBody, "model").String()); err != nil {
 		return nil, err
@@ -1148,7 +1156,7 @@ func ExecuteCompactRequest(ctx context.Context, account *auth.Account, requestBo
 	}
 
 	// compact 端点
-	endpoint := CodexBaseURL + "/responses/compact"
+	endpoint := CodexBaseURLForAccount(account) + "/responses/compact"
 
 	// 出口链路统一由 ResolveCodexEgress 决定(Resin > 代理 > 直连,见 egress.go)。
 	egress := ResolveCodexEgress(account, endpoint, proxyURL)

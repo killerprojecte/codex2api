@@ -457,6 +457,7 @@ func FetchCodexModelsManifest(ctx context.Context, account *auth.Account, proxyU
 	if codexModelsManifestURLForTest != "" {
 		endpoint = codexModelsManifestURLForTest
 	}
+	endpoint = CodexURLForAccount(account, endpoint)
 	return fetchCodexModelsManifestWithURL(ctx, account, proxyURL, endpoint, clientVersion, ifNoneMatch)
 }
 
@@ -502,6 +503,7 @@ func fetchCodexModelsManifestWithURL(ctx context.Context, account *auth.Account,
 	client := getCodexMaintenanceClient(account, proxyURL)
 
 	resp, err := client.Do(req)
+	UpdateCodexCookieJarFromResponse(account, req.URL, resp)
 	if err != nil {
 		return nil, fmt.Errorf("codex models request: %w", err)
 	}

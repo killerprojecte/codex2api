@@ -205,6 +205,7 @@ export interface AccountDetailSheetProps {
   onTest: () => void;
   onRefresh: () => void;
   onRefreshCodexSession?: () => void;
+  onToggleCodexSession?: () => void;
   onGenerateAuthJson: () => void;
   onToggleEnabled: () => void;
   onToggleLock: () => void;
@@ -243,6 +244,7 @@ export default function AccountDetailSheet({
   onTest,
   onRefresh,
   onRefreshCodexSession,
+  onToggleCodexSession,
   onGenerateAuthJson,
   onToggleEnabled,
   onToggleLock,
@@ -259,6 +261,13 @@ export default function AccountDetailSheet({
   const [cooldownMode, setCooldownMode] = useState<string>("inherit");
   const [cooldownSeconds, setCooldownSeconds] = useState(300);
   const [cooldownBackoff, setCooldownBackoff] = useState(true);
+  const [edgeNow, setEdgeNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!account?.codex_edge_next_switch_at) return;
+    const timer = window.setInterval(() => setEdgeNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [account?.codex_edge_next_switch_at]);
 
   useEffect(() => {
     if (!account) return;
@@ -803,6 +812,9 @@ export default function AccountDetailSheet({
               account.claude_api ||
               account.base_url ||
               account.codex_previous_id ||
+              account.codex_websocket_session_enabled ||
+              account.codex_edge_domain ||
+              onToggleCodexSession ||
               (!account.openai_responses_api &&
                 (account.models?.length ?? 0) > 0)) && (
               <Section title={t("accounts.detailTechnical")}>
@@ -877,6 +889,47 @@ export default function AccountDetailSheet({
                       </span>
                     </div>
                   )}
+                  {onToggleCodexSession && (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">
+                        {t("accounts.codexSessionMode")}
+                      </span>
+                      <span className="flex items-center gap-2 font-medium text-foreground">
+                        <span className={account.codex_websocket_session_enabled ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+                          {account.codex_websocket_session_enabled
+                            ? t("accounts.codexSessionModeEnabled")
+                            : t("accounts.codexSessionModeDisabled")}
+                        </span>
+                        <Switch
+                          checked={Boolean(account.codex_websocket_session_enabled)}
+                          onCheckedChange={() => onToggleCodexSession()}
+                          aria-label={t("accounts.codexSessionMode")}
+                        />
+                      </span>
+                    </div>
+                  )}
+                  {account.codex_websocket_session_enabled && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-muted-foreground">
+                        {t("accounts.codexSessionStatus")}
+                      </span>
+                      <span className={account.codex_websocket_session_id ? "text-right text-emerald-600 dark:text-emerald-400" : "text-right text-amber-600 dark:text-amber-400"}>
+                        {account.codex_websocket_session_id
+                          ? t("accounts.codexSessionActive")
+                          : t("accounts.codexSessionNeedsRefresh")}
+                      </span>
+                    </div>
+                  )}
+                  {account.codex_websocket_session_id && (
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="shrink-0 text-muted-foreground">
+                        {t("accounts.codexSessionId")}
+                      </span>
+                      <span className="min-w-0 break-all text-right font-mono text-[11px] text-foreground">
+                        {account.codex_websocket_session_id}
+                      </span>
+                    </div>
+                  )}
                   {account.codex_websocket_session_expires_at && (
                     <div className="flex justify-between gap-3">
                       <span className="text-muted-foreground">
@@ -886,6 +939,22 @@ export default function AccountDetailSheet({
                         {formatBeijingTime(account.codex_websocket_session_expires_at)}
                       </span>
                     </div>
+                  )}
+                  {account.codex_edge_domain && (
+                    <>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">{t("accounts.codexEdgeDomain")}</span>
+                        <span className="text-right font-mono text-[11px] text-foreground">{account.codex_edge_domain}</span>
+                      </div>
+                      {account.codex_edge_next_switch_at && (
+                        <div className="flex justify-between gap-3">
+                          <span className="text-muted-foreground">{t("accounts.codexEdgeNextSwitch")}</span>
+                          <span className="text-right text-foreground">
+                            {formatBeijingTime(account.codex_edge_next_switch_at)} ({Math.max(0, Math.ceil((Date.parse(account.codex_edge_next_switch_at) - edgeNow) / 1000))}{t("settings.unit.sec")})
+                          </span>
+                        </div>
+                      )}
+                    </>
                   )}
                   {showResetCredits && resetCredits > 0 && (
                     <div className="flex justify-between gap-3">
@@ -972,7 +1041,7 @@ export default function AccountDetailSheet({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={codexSessionRefreshing}
+                  disabled={codexSessionRefreshing || !account.codex_websocket_session_enabled}
                   onClick={onRefreshCodexSession}
                 >
                   <RefreshCw className={`size-3.5 ${codexSessionRefreshing ? "animate-spin" : ""}`} />

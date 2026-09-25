@@ -43,7 +43,11 @@ func maintenanceClientKey(account *auth.Account, proxyURL, transportMode, purpos
 	if account != nil {
 		accountID = account.ID()
 	}
-	return fmt.Sprintf("maint|%s|%d|%s|%s", purpose, accountID, strings.TrimSpace(proxyURL), transportMode)
+	jarMode := 0
+	if account != nil && !account.IsRelayStyle() && CurrentRuntimeSettings().CodexCookieJarEnabled {
+		jarMode = 1
+	}
+	return fmt.Sprintf("maint|%s|%d|%s|%s|jar%d", purpose, accountID, strings.TrimSpace(proxyURL), transportMode, jarMode)
 }
 
 // getMaintenanceClient 返回维护请求专用的池化 Client。
@@ -73,6 +77,7 @@ func getMaintenanceClient(account *auth.Account, proxyURL, purpose string, force
 	entry := &poolEntry{
 		client: &http.Client{
 			Transport: transport,
+			Jar:       CodexCookieJarForAccount(account),
 			// 不设整体超时：各调用方都用 context 控制超时（wham 25s、清单 15s、
 			// search 120s、订阅 15s），与 /responses 池的语义保持一致。
 			Timeout: 0,

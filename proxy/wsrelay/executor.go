@@ -131,7 +131,7 @@ func (e *Executor) ExecuteRequestViaWebsocket(
 	headerSessionID := resolveHandshakeSessionID(sessionID, poolRouteKey, wsBody)
 
 	// 构建 WebSocket URL
-	httpURL := proxy.CodexBaseURL + CodexWsEndpoint
+	httpURL := proxy.CodexBaseURLForAccount(account) + CodexWsEndpoint
 	wsURL, err := buildWebsocketURL(httpURL)
 	if err != nil {
 		return nil, fmt.Errorf("构建 WebSocket URL 失败: %w", err)
@@ -439,6 +439,11 @@ func (e *Executor) sendRequest(wc *WsConnection, body []byte, requestID string) 
 	if err := wc.ensureReadLeaseForSend(requestID); err != nil {
 		return err
 	}
+	accountID := int64(0)
+	if wc.session != nil {
+		accountID = wc.session.AccountID
+	}
+	proxy.LogCodexResponsesPayload(accountID, "websocket", "send", body)
 	return wc.WriteMessage(websocket.TextMessage, body)
 }
 
@@ -500,6 +505,11 @@ func (r *WsResponse) ReadStream(callback func(data []byte) bool) error {
 		if len(payload) == 0 {
 			continue
 		}
+		accountID := int64(0)
+		if r.conn.session != nil {
+			accountID = r.conn.session.AccountID
+		}
+		proxy.LogCodexResponsesPayload(accountID, "websocket", "receive", payload)
 
 		// 解析并处理消息
 		if err := r.handleMessage(payload, callback); err != nil {

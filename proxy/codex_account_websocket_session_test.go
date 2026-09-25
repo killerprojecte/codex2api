@@ -8,9 +8,13 @@ import (
 func TestCodexAccountWebsocketSessionIsPerAccountAndExpires(t *testing.T) {
 	ResetCodexAccountWebsocketSession(901)
 	ResetCodexAccountWebsocketSession(902)
+	SetCodexAccountWebsocketSessionEnabled(901, false)
+	SetCodexAccountWebsocketSessionEnabled(902, false)
 	t.Cleanup(func() {
 		ResetCodexAccountWebsocketSession(901)
 		ResetCodexAccountWebsocketSession(902)
+		SetCodexAccountWebsocketSessionEnabled(901, false)
+		SetCodexAccountWebsocketSessionEnabled(902, false)
 	})
 
 	expires := time.Now().Add(time.Minute)

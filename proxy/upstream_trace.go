@@ -164,11 +164,26 @@ func noteUpstreamTurnState(ctx context.Context, state string) {
 func doTracedUpstreamRequest(client *http.Client, req *http.Request, account *auth.Account, proxyURL string) (*http.Response, error) {
 	record := beginUpstreamTrace(req.Context(), account, proxyURL, false)
 	resp, err := client.Do(req)
+	if resp != nil && isCodexResponsesRequest(req) {
+		transport := "http"
+		if account != nil && account.OpenAIResponsesUsesUpstreamWebsocket() {
+			transport = "http-relay"
+		}
+		resp.Body = WrapCodexResponsesResponseBody(accountIDForDebug(account), transport, resp.StatusCode, resp.Body)
+	}
+	UpdateCodexCookieJarFromResponse(account, req.URL, resp)
 	if account != nil && !account.IsRelayStyle() {
 		LogCodexResponseCookies(account.ID(), resp)
 	}
 	record(resp)
 	return resp, err
+}
+
+func accountIDForDebug(account *auth.Account) int64 {
+	if account == nil {
+		return 0
+	}
+	return account.ID()
 }
 
 func populateUpstreamTrace(c *gin.Context, input *database.UsageLogInput) {

@@ -16,7 +16,7 @@ import (
 )
 
 // RefreshCodexWebsocketSession creates a fresh native Codex WebSocket session
-// for one account, sends a small stored response to obtain its response id,
+// for one account, sends a small response to obtain its response id,
 // and keeps the response id/session pair for one hour.
 func (h *Handler) RefreshCodexWebsocketSession(c *gin.Context) {
 	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
@@ -41,6 +41,10 @@ func (h *Handler) RefreshCodexWebsocketSession(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Codex WebSocket 执行器未初始化"})
 		return
 	}
+	if !proxy.CodexAccountWebsocketSessionEnabled(account.ID()) {
+		c.JSON(http.StatusConflict, gin.H{"error": "请先手动开启此账号的 WebSocket 会话模式"})
+		return
+	}
 
 	model, err := h.connectionTestModelForAccount(c.Request.Context(), account, strings.TrimSpace(c.Query("model")))
 	if err != nil {
@@ -48,7 +52,10 @@ func (h *Handler) RefreshCodexWebsocketSession(c *gin.Context) {
 		return
 	}
 	payload := buildConnectionTestPayload(h.store, model)
-	payload, _ = sjson.SetBytes(payload, "store", true)
+	// Native Codex WebSocket continuation is connection-local. The normal
+	// Codex payload uses store=false, and response ids remain usable on the
+	// same pooled connection without asking the server to persist a response.
+	payload, _ = sjson.SetBytes(payload, "store", false)
 	sessionID := proxy.NewUpstreamSessionUUID()
 
 	// Rotating the pair must also discard old pooled connections and response-id
@@ -78,24 +85,23 @@ func (h *Handler) RefreshCodexWebsocketSession(c *gin.Context) {
 
 	var previousID string
 	var streamErr string
+	var terminalType string
+	var lastEventType string
 	readErr := proxy.ReadSSEStream(resp.Body, func(data []byte) bool {
-		if id := strings.TrimSpace(gjson.GetBytes(data, "response.id").String()); id != "" {
+		lastEventType = strings.TrimSpace(gjson.GetBytes(data, "type").String())
+		if id := codexWebsocketResponseID(data); id != "" {
 			previousID = id
 		}
-		if id := strings.TrimSpace(gjson.GetBytes(data, "id").String()); previousID == "" && id != "" && strings.HasPrefix(id, "resp_") {
-			previousID = id
-		}
-		switch gjson.GetBytes(data, "type").String() {
+		switch lastEventType {
 		case "response.failed", "error":
-			streamErr = strings.TrimSpace(gjson.GetBytes(data, "error.message").String())
-			if streamErr == "" {
-				streamErr = strings.TrimSpace(gjson.GetBytes(data, "message").String())
-			}
+			terminalType = lastEventType
+			streamErr = codexWebsocketSessionError(data)
 			return false
 		case "response.completed":
+			terminalType = lastEventType
 			status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(data, "response.status").String()))
 			if status == "failed" || status == "incomplete" {
-				streamErr = "response " + status
+				streamErr = codexWebsocketSessionError(data)
 				return false
 			}
 			return false
@@ -111,8 +117,12 @@ func (h *Handler) RefreshCodexWebsocketSession(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Codex 会话初始化失败: " + streamErr})
 		return
 	}
+	if terminalType != "response.completed" {
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Codex 会话未完成，最后事件: %s", lastEventType)})
+		return
+	}
 	if previousID == "" {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Codex 会话响应缺少 previous_id"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Codex 会话已完成，但上游未返回 response.id"})
 		return
 	}
 
@@ -127,4 +137,57 @@ func (h *Handler) RefreshCodexWebsocketSession(c *gin.Context) {
 		"expires_at":  expiresAt.Format(time.RFC3339),
 		"model":       model,
 	})
+}
+
+func codexWebsocketSessionError(data []byte) string {
+	for _, path := range []string{"response.error.message", "error.message", "response.incomplete_details.reason", "message", "response.error.code", "error.code"} {
+		if detail := strings.TrimSpace(gjson.GetBytes(data, path).String()); detail != "" {
+			return detail
+		}
+	}
+	return "上游返回失败事件"
+}
+
+func codexWebsocketResponseID(data []byte) string {
+	for _, path := range []string{"response.id", "response.response.id", "response_id"} {
+		if id := strings.TrimSpace(gjson.GetBytes(data, path).String()); id != "" {
+			return id
+		}
+	}
+	if id := strings.TrimSpace(gjson.GetBytes(data, "id").String()); strings.HasPrefix(id, "resp_") {
+		return id
+	}
+	return ""
+}
+
+// ToggleCodexWebsocketSessionMode opts a single account in or out. Turning
+// it off immediately drops the cached response id and its pooled connection.
+func (h *Handler) ToggleCodexWebsocketSessionMode(c *gin.Context) {
+	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的账号 ID"})
+		return
+	}
+	if h == nil || h.store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "账号存储未初始化"})
+		return
+	}
+	account := h.store.FindByID(id)
+	if account == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "账号不在运行时池中"})
+		return
+	}
+	if account.IsRelayStyle() || account.IsCodexAgentIdentity() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "只有官方 Codex 账号支持 WebSocket 会话模式"})
+		return
+	}
+	var request struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || request.Enabled == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "enabled 必须是布尔值"})
+		return
+	}
+	proxy.SetCodexAccountWebsocketSessionEnabled(id, *request.Enabled)
+	c.JSON(http.StatusOK, gin.H{"enabled": *request.Enabled})
 }

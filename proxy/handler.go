@@ -163,6 +163,25 @@ func (h *Handler) shouldUseWebsocketForHTTP() bool {
 	}
 }
 
+// accountWebsocketSessionModeWantsWebsocket is an account-scoped opt-in. It
+// is deliberately evaluated after the normal image/1009 guards so an enabled
+// account gets the pre-warmed transport while every disabled account keeps the
+// existing global transport decision.
+func accountWebsocketSessionModeWantsWebsocket(account *auth.Account, body []byte, forceHTTP bool) bool {
+	if account == nil || forceHTTP || !CodexAccountWebsocketSessionEnabled(account.ID()) {
+		return false
+	}
+	// Enabling the mode alone does not change traffic. It becomes active only
+	// after the explicit refresh has produced a live response/session pair.
+	if _, ok := GetCodexAccountWebsocketSession(account.ID()); !ok {
+		return false
+	}
+	if rawResponsesBodyShouldForceHTTPForImageGeneration(body) {
+		return false
+	}
+	return !globalWSSizeRouter.PreferHTTP(len(body))
+}
+
 func (h *Handler) resolveProxyForAttempt(account *auth.Account, stickyProxyURL string) string {
 	if h != nil && h.store != nil {
 		if proxyURL := strings.TrimSpace(stickyProxyURL); proxyURL != "" && !h.store.ManagedProxyUnavailable(proxyURL) {
@@ -4188,6 +4207,9 @@ func (h *Handler) Responses(c *gin.Context) {
 		if openAIResponsesRelayUsesUpstreamWebsocket(account, rawBody) {
 			useWebsocket = true
 		}
+		if !useWebsocket && accountWebsocketSessionModeWantsWebsocket(account, rawBody, wsHTTPFallback.ForceHTTP()) {
+			useWebsocket = true
+		}
 
 		// 提取 API Key 用于设备指纹稳定化
 		apiKey := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
@@ -7000,6 +7022,9 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 		// 按尝试重算：不同尝试的生效模型/账号可能不同，规则按模型或账号门匹配则结果随之变化。
 		if !isRelayAccount {
 			serviceTier = EffectiveRequestedServiceTier(codexBody, attemptEffectiveModel, downstreamHeaders, attemptIdentity)
+		}
+		if !useWebsocket && accountWebsocketSessionModeWantsWebsocket(account, rawBody, wsHTTPFallback.ForceHTTP()) {
+			useWebsocket = true
 		}
 
 		upstreamSessionID := resolveUpstreamSessionID(apiKeyID, sessionIdentity.upstreamSeed, sessionIdentity.explicitUpstreamID, useWebsocket)

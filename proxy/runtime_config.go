@@ -48,17 +48,19 @@ const (
 	defaultBillingTierPolicy     = BillingTierPolicyActual
 	// defaultCodexRequestCompression 对齐真实 Codex CLI：它对 ChatGPT 后端的
 	// HTTP /responses 请求体默认 zstd 压缩，所以网关默认也压。
-	defaultCodexRequestCompression = true
-	defaultCodexWSHideErrors       = true
-	defaultCodexWSSilentRetry      = true
-	defaultCodexWSSilentRetries    = 2
-	defaultCodexWSSizeRouter       = true
-	maxCodexWSSilentRetries        = 10
-	defaultCodexWSBusyMaxWaitSec   = 30
-	defaultCodexWSBusyPatienceSec  = 2
-	maxCodexWSBusyWaitSec          = 300
-	defaultCodexWSStatelessSlots   = 8
-	maxCodexWSStatelessSlots       = 32
+	defaultCodexRequestCompression      = true
+	defaultCodexWSHideErrors            = true
+	defaultCodexWSSilentRetry           = true
+	defaultCodexWSSilentRetries         = 2
+	defaultCodexWSSizeRouter            = true
+	maxCodexWSSilentRetries             = 10
+	defaultCodexWSBusyMaxWaitSec        = 30
+	defaultCodexWSBusyPatienceSec       = 2
+	maxCodexWSBusyWaitSec               = 300
+	defaultCodexWSStatelessSlots        = 8
+	maxCodexWSStatelessSlots            = 32
+	defaultCodexEdgeRotationIntervalSec = 200
+	defaultCodexEdgeRotationMax         = 215
 
 	defaultCodexContinueMaxRounds = 8
 	minCodexContinueMaxRounds     = 1
@@ -80,8 +82,12 @@ type RuntimeSettings struct {
 	FirstTokenTimeoutSec  int
 	BillingTierPolicy     string
 	// ModelsListReadMaxBytes 是上游 /v1/models 与 Codex 模型清单成功响应的读取上限。
-	ModelsListReadMaxBytes int64
-	CodexForceWebsocket    bool // 强制 Codex 上游走 WebSocket（默认 false）
+	ModelsListReadMaxBytes       int64
+	CodexForceWebsocket          bool // 强制 Codex 上游走 WebSocket（默认 false）
+	CodexCookieJarEnabled        bool // 按账号保存并复用 Codex 上游 Cookie
+	CodexEdgeRotationEnabled     bool // 按账号轮询 Codex unified 边缘节点
+	CodexEdgeRotationIntervalSec int
+	CodexEdgeRotationMax         int
 	// CodexRequestCompression 对 HTTP /responses 请求体做 zstd 压缩（默认 true，
 	// 与真实 Codex CLI 一致）。与 CodexForceWebsocket 正交：WS 路径走
 	// permessage-deflate（拨号器已开启），本项只作用于 HTTP 路径，两者可同时生效。
@@ -186,6 +192,8 @@ func DefaultRuntimeSettings() RuntimeSettings {
 		BillingTierPolicy:                defaultBillingTierPolicy,
 		ModelsListReadMaxBytes:           database.DefaultModelsListReadMaxBytes,
 		CodexRequestCompression:          defaultCodexRequestCompression,
+		CodexEdgeRotationIntervalSec:     defaultCodexEdgeRotationIntervalSec,
+		CodexEdgeRotationMax:             defaultCodexEdgeRotationMax,
 		CodexWSHideErrors:                defaultCodexWSHideErrors,
 		CodexWSSilentRetry:               defaultCodexWSSilentRetry,
 		CodexWSSilentRetries:             defaultCodexWSSilentRetries,
@@ -273,6 +281,18 @@ func NormalizeRuntimeSettings(settings RuntimeSettings) RuntimeSettings {
 	settings.ModelsListReadMaxBytes = database.NormalizeModelsListReadMaxBytes(settings.ModelsListReadMaxBytes)
 	settings.RequestIsolationMode = NormalizeRequestIsolationMode(settings.RequestIsolationMode)
 	settings.CodexImagesMainModel, _ = NormalizeImagesMainModel(settings.CodexImagesMainModel)
+	if settings.CodexEdgeRotationIntervalSec <= 0 {
+		settings.CodexEdgeRotationIntervalSec = defaults.CodexEdgeRotationIntervalSec
+	}
+	if settings.CodexEdgeRotationIntervalSec > 86400 {
+		settings.CodexEdgeRotationIntervalSec = 86400
+	}
+	if settings.CodexEdgeRotationMax <= 0 {
+		settings.CodexEdgeRotationMax = defaults.CodexEdgeRotationMax
+	}
+	if settings.CodexEdgeRotationMax > defaultCodexEdgeRotationMax {
+		settings.CodexEdgeRotationMax = defaultCodexEdgeRotationMax
+	}
 	if strings.TrimSpace(settings.CodexMinCLIVersion) == "" {
 		settings.CodexMinCLIVersion = defaults.CodexMinCLIVersion
 	} else {
@@ -353,6 +373,11 @@ func ApplyRuntimeSettingsFromSystem(settings *database.SystemSettings) RuntimeSe
 		next.BillingTierPolicy = settings.BillingTierPolicy
 		next.ModelsListReadMaxBytes = settings.ModelsListReadMaxBytes
 		next.CodexForceWebsocket = settings.CodexForceWebsocket
+		codexEdge := ParseCodexEdgeConfigJSON(settings.CodexEdgeConfig)
+		next.CodexCookieJarEnabled = codexEdge.CookieJarEnabled
+		next.CodexEdgeRotationEnabled = codexEdge.EdgeRotationEnabled
+		next.CodexEdgeRotationIntervalSec = codexEdge.EdgeRotationIntervalSec
+		next.CodexEdgeRotationMax = codexEdge.EdgeRotationMax
 		next.CodexRequestCompression = settings.CodexRequestCompression
 		next.CodexWSWeakNetworkMode = settings.CodexWSWeakNetworkMode
 		next.CodexWSHideErrors = settings.CodexWSHideUpstreamErrors

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -1218,6 +1219,15 @@ func (m *Manager) createConnection(
 	// 仅按需覆盖 Proxy；避免逐字段重建时漏抄字段（曾导致 NetDialContext/KeepAlive 失效）。
 	dialerCopy := *m.dialer
 	dialer := &dialerCopy
+	handshakeHeaders := headers
+	if cookieJar := proxy.CodexCookieJarForAccount(account); cookieJar != nil {
+		// Gorilla's jar lookup uses the wss URL directly, which does not make
+		// net/http/cookiejar consider Secure cookies eligible. Apply from the
+		// equivalent https URL and store the handshake response explicitly below.
+		handshakeHeaders = headers.Clone()
+		proxy.ApplyCodexCookieJarToHeaders(account, wsURL, handshakeHeaders)
+		dialer.Jar = nil
+	}
 
 	// 拨号代理与 ExecuteRequestViaWebsocket 同一套判定:Resin 承担出站时不配代理
 	// (传入的 wsURL 已是 Resin 反代地址);poolKey 仍按第 2 层代理分池,保持既有键不变。
@@ -1251,7 +1261,10 @@ func (m *Manager) createConnection(
 	m.sessions.Store(poolKey, session)
 
 	// 拨号连接
-	conn, resp, err := dialer.DialContext(ctx, wsURL, headers)
+	conn, resp, err := dialer.DialContext(ctx, wsURL, handshakeHeaders)
+	if parsedURL, parseErr := url.Parse(wsURL); parseErr == nil {
+		proxy.UpdateCodexCookieJarFromResponse(account, parsedURL, resp)
+	}
 	proxy.LogCodexResponseCookies(account.ID(), resp)
 	if err != nil {
 		m.sessions.Delete(poolKey)
@@ -1266,7 +1279,7 @@ func (m *Manager) createConnection(
 	wc := NewWsConnection(conn, session, wsURL)
 	wc.account = account
 	wc.PoolKey = poolKey
-	wc.upstreamUserAgent = strings.TrimSpace(headers.Get("User-Agent"))
+	wc.upstreamUserAgent = strings.TrimSpace(handshakeHeaders.Get("User-Agent"))
 	wc.upstreamUserAgentKnown = true
 	wc.httpResp = resp
 	wc.onDisconnected = m.getOnDisconnected()

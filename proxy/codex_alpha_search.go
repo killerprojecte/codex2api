@@ -138,6 +138,7 @@ func ForwardCodexAlphaSearch(ctx context.Context, account *auth.Account, proxyUR
 	if codexAlphaSearchURLForTest != "" {
 		endpoint = codexAlphaSearchURLForTest
 	}
+	endpoint = CodexURLForAccount(account, endpoint)
 
 	// standalone 搜索是模型驱动的检索回合，上游耗时可达数十秒。
 	reqCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
@@ -169,6 +170,7 @@ func ForwardCodexAlphaSearch(ctx context.Context, account *auth.Account, proxyUR
 	resp, err := executeHTTPWithContinuousRetryKeepalive(reqCtx, func() (*http.Response, error) {
 		return client.Do(req)
 	})
+	UpdateCodexCookieJarFromResponse(account, req.URL, resp)
 	if err != nil {
 		return nil, fmt.Errorf("codex search request: %w", err)
 	}

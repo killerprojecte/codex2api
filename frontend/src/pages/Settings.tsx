@@ -2199,6 +2199,10 @@ export default function Settings() {
     auto_reset_credits_before_expiry_min: 60,
     auto_activate_5h_window_enabled: false,
     codex_force_websocket: false,
+    codex_cookie_jar_enabled: false,
+    codex_edge_rotation_enabled: false,
+    codex_edge_rotation_interval_sec: 200,
+    codex_edge_rotation_max: 215,
     codex_telemetry_enabled: false,
     codex_telemetry_timing_debug: false,
     codex_request_compression: true,
@@ -3610,6 +3614,12 @@ export default function Settings() {
                         onCheckedChange={(checked) => autoSaveBooleanField('codex_force_websocket', checked)}
                       />
                     </SettingField>
+                    <SettingField label={t('settings.codexCookieJarEnabled')} description={t('settings.codexCookieJarEnabledDesc')} layout="switch">
+                      <Switch checked={settingsForm.codex_cookie_jar_enabled} onCheckedChange={(checked) => autoSaveBooleanField('codex_cookie_jar_enabled', checked)} />
+                    </SettingField>
+                    <SettingField label={t('settings.codexEdgeRotationEnabled')} description={t('settings.codexEdgeRotationEnabledDesc')} layout="switch">
+                      <Switch checked={settingsForm.codex_edge_rotation_enabled} disabled={!settingsForm.codex_cookie_jar_enabled} onCheckedChange={(checked) => autoSaveBooleanField('codex_edge_rotation_enabled', checked)} />
+                    </SettingField>
                     <SettingField label={t('settings.codexRequestCompression')} description={t('settings.codexRequestCompressionDesc')} layout="switch">
                       <Switch
                         checked={settingsForm.codex_request_compression}
@@ -3656,6 +3666,12 @@ export default function Settings() {
                   </div>
 
                   <div className={cn(SETTINGS_FIELD_GRID, 'border-t border-border/80 pt-4')}>
+                    <SettingField label={t('settings.codexEdgeRotationInterval')} description={t('settings.codexEdgeRotationIntervalDesc')} suffix={t('settings.unit.sec')} className={cn((!settingsForm.codex_cookie_jar_enabled || !settingsForm.codex_edge_rotation_enabled) && 'opacity-60')}>
+                      <DraftNumberInput min={1} max={86400} disabled={!settingsForm.codex_cookie_jar_enabled || !settingsForm.codex_edge_rotation_enabled} value={settingsForm.codex_edge_rotation_interval_sec} onValueChange={(value) => setSettingsForm(f => ({ ...f, codex_edge_rotation_interval_sec: value }))} onValueCommit={(value) => { if (settingsForm.codex_cookie_jar_enabled && settingsForm.codex_edge_rotation_enabled) void autoSaveSettingsPatch({ codex_edge_rotation_interval_sec: value }) }} />
+                    </SettingField>
+                    <SettingField label={t('settings.codexEdgeRotationMax')} description={t('settings.codexEdgeRotationMaxDesc')} className={cn((!settingsForm.codex_cookie_jar_enabled || !settingsForm.codex_edge_rotation_enabled) && 'opacity-60')}>
+                      <DraftNumberInput min={1} max={215} disabled={!settingsForm.codex_cookie_jar_enabled || !settingsForm.codex_edge_rotation_enabled} value={settingsForm.codex_edge_rotation_max} onValueChange={(value) => setSettingsForm(f => ({ ...f, codex_edge_rotation_max: value }))} onValueCommit={(value) => { if (settingsForm.codex_cookie_jar_enabled && settingsForm.codex_edge_rotation_enabled) void autoSaveSettingsPatch({ codex_edge_rotation_max: value }) }} />
+                    </SettingField>
                     <SettingField
                       label={t('settings.codexWSKeepaliveInterval')}
                       description={t('settings.codexWSKeepaliveIntervalDesc')}

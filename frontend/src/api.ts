@@ -883,6 +883,11 @@ export const api = {
       `/accounts/${id}/codex-websocket-session/refresh${model ? `?model=${encodeURIComponent(model)}` : ''}`,
       { method: 'POST', timeoutMs: 130_000 },
     ),
+  setCodexWebsocketSessionMode: (id: number, enabled: boolean) =>
+    request<{ enabled: boolean }>(`/accounts/${id}/codex-websocket-session/mode`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
   getAccount: (id: number, signal?: AbortSignal) =>
     request<AccountRow>(`/accounts/${id}`, { signal }),
   forceUsageProbe: () =>

@@ -22,8 +22,33 @@ type CodexAccountWebsocketSession struct {
 
 var codexAccountWebsocketSessions = struct {
 	sync.Mutex
-	items map[int64]CodexAccountWebsocketSession
-}{items: make(map[int64]CodexAccountWebsocketSession)}
+	items   map[int64]CodexAccountWebsocketSession
+	enabled map[int64]bool
+}{items: make(map[int64]CodexAccountWebsocketSession), enabled: make(map[int64]bool)}
+
+// CodexAccountWebsocketSessionEnabled reports the account's explicit opt-in.
+// The default is off, including after a process restart.
+func CodexAccountWebsocketSessionEnabled(accountID int64) bool {
+	codexAccountWebsocketSessions.Lock()
+	defer codexAccountWebsocketSessions.Unlock()
+	return codexAccountWebsocketSessions.enabled[accountID]
+}
+
+func SetCodexAccountWebsocketSessionEnabled(accountID int64, enabled bool) {
+	if accountID <= 0 {
+		return
+	}
+	codexAccountWebsocketSessions.Lock()
+	if enabled {
+		codexAccountWebsocketSessions.enabled[accountID] = true
+	} else {
+		delete(codexAccountWebsocketSessions.enabled, accountID)
+	}
+	codexAccountWebsocketSessions.Unlock()
+	if !enabled {
+		ResetCodexAccountWebsocketSession(accountID)
+	}
+}
 
 // GetCodexAccountWebsocketSession returns a copy of the live account session.
 // Expiry is checked lazily so the map cannot retain stale response ids.
@@ -92,7 +117,7 @@ func resetCodexAccountWebsocketConnections(accountID int64) {
 }
 
 func accountWebsocketSessionID(account *auth.Account) string {
-	if account == nil {
+	if account == nil || !CodexAccountWebsocketSessionEnabled(account.ID()) {
 		return ""
 	}
 	session, ok := GetCodexAccountWebsocketSession(account.ID())
